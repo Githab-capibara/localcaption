@@ -177,6 +177,8 @@ def _cmd_doctor(argv: list[str]) -> int:
     print("\nwhisper.cpp:")
     whisper_dir = args.whisper_dir or _default_whisper_dir()
     print(f"  searching: {whisper_dir}")
+    fix_hints: list[str] = []
+
     if whisper_dir.is_dir():
         _check("directory exists", True, str(whisper_dir))
         paths = WhisperPaths(whisper_dir)
@@ -185,6 +187,11 @@ def _cmd_doctor(argv: list[str]) -> int:
             all_ok &= _check("binary built", True, str(binary))
         except LocalCaptionError as exc:
             all_ok &= _check("binary built", False, str(exc).splitlines()[0])
+            fix_hints.append(
+                "whisper.cpp directory exists but isn't built. To build it:\n"
+                f"    cd {whisper_dir}\n"
+                "    cmake -B build && cmake --build build -j --config Release"
+            )
 
         models_dir = paths.models_dir
         if models_dir.is_dir():
@@ -192,17 +199,33 @@ def _cmd_doctor(argv: list[str]) -> int:
             if available:
                 _check("models present", True, ", ".join(available))
             else:
-                all_ok &= _check(
-                    "models present", False,
-                    f"no ggml-*.bin in {models_dir} — "
-                    f"`bash {models_dir}/download-ggml-model.sh base.en`",
+                all_ok &= _check("models present", False, f"no ggml-*.bin in {models_dir}")
+                fix_hints.append(
+                    "No ggml-*.bin model files found. To download the default model:\n"
+                    f"    bash {models_dir}/download-ggml-model.sh base.en"
                 )
         else:
             all_ok &= _check("models directory", False, str(models_dir))
+            fix_hints.append(
+                f"models/ subdirectory missing under {whisper_dir} — "
+                "your whisper.cpp clone may be incomplete; re-clone it."
+            )
     else:
-        all_ok &= _check(
-            "directory exists", False,
-            "run install.sh or set --whisper-dir / $LOCALCAPTION_WHISPER_DIR",
+        all_ok &= _check("directory exists", False, str(whisper_dir))
+        fix_hints.append(
+            "whisper.cpp is not installed. Pick ONE of:\n\n"
+            "  Option A — let our installer do it for you:\n"
+            "    curl -fsSL https://raw.githubusercontent.com/jatinkrmalik/"
+            "localcaption/main/scripts/install.sh | bash\n\n"
+            "  Option B — DIY, anywhere you like:\n"
+            "    git clone https://github.com/ggerganov/whisper.cpp \\\n"
+            "        ~/.local/share/localcaption/whisper.cpp\n"
+            "    cd ~/.local/share/localcaption/whisper.cpp\n"
+            "    cmake -B build && cmake --build build -j --config Release\n"
+            "    bash models/download-ggml-model.sh base.en\n\n"
+            "  Option C — point us at an existing whisper.cpp checkout:\n"
+            "    export LOCALCAPTION_WHISPER_DIR=/path/to/your/whisper.cpp\n"
+            "    # add that line to your shell rc to make it stick"
         )
 
     print("\nLookup paths searched:")
@@ -210,12 +233,18 @@ def _cmd_doctor(argv: list[str]) -> int:
         marker = "✓" if c.is_dir() else "·"
         print(f"  {marker} {c}")
 
-    print()
+    if fix_hints:
+        print("\nHow to fix:\n")
+        for hint in fix_hints:
+            for line in hint.splitlines():
+                print(f"  {line}" if line else "")
+            print()
+
     if all_ok:
         print("All checks passed. You're good to go: localcaption <url>")
         return 0
     else:
-        print("Some checks failed. See messages above.")
+        print("Some checks failed. See 'How to fix' above.")
         return 1
 
 
