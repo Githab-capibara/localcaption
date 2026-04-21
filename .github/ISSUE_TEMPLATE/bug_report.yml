@@ -1,0 +1,56 @@
+name: 🐛 Bug report
+description: Something is broken or doesn't behave as documented.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+        Please run `pip install -U yt-dlp` and try again first — the vast
+        majority of "YouTube broke it" issues are upstream extractor regressions.
+
+  - type: input
+    id: command
+    attributes:
+      label: Exact command you ran
+      placeholder: localcaption "https://www.youtube.com/watch?v=..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Full output (including stack trace)
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: localcaption-version
+    attributes:
+      label: localcaption version
+      description: Output of `localcaption --version`
+    validations:
+      required: true
+
+  - type: input
+    id: ytdlp-version
+    attributes:
+      label: yt-dlp version
+      description: Output of `yt-dlp --version`
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: OS / Python version
+      placeholder: "macOS 14.5 / Python 3.12.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, model used, etc.

@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "localcaption"
+version = "0.1.0"
+description = "Fully-local YouTube → transcript pipeline using yt-dlp, ffmpeg, and whisper.cpp. No API keys."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Jatin Kumar Malik" }]
+keywords = [
+    "whisper", "whisper.cpp", "yt-dlp", "youtube",
+    "transcription", "captions", "subtitles", "speech-to-text", "local",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "yt-dlp>=2025.10.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+localcaption = "localcaption.cli:main"
+
+[project.urls]
+Homepage      = "https://github.com/jatinkrmalik/localcaption"
+Repository    = "https://github.com/jatinkrmalik/localcaption"
+Issues        = "https://github.com/jatinkrmalik/localcaption/issues"
+Changelog     = "https://github.com/jatinkrmalik/localcaption/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/localcaption"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length is enforced by formatter
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-ra"
