@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Cancel any in-flight release for the same tag (e.g. if someone re-pushes).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never abort a real release in flight
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # 1. Build sdist + wheel, validate metadata, sanity-check version.
+  # ─────────────────────────────────────────────────────────────────────
+  build:
+    name: Build & validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Extract version from git tag
+        id: tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag version: $VERSION"
+
+      - name: Verify pyproject.toml version matches tag
+        run: |
+          PKG_VERSION=$(python -c "import tomllib,sys; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          TAG_VERSION="${{ steps.tag.outputs.version }}"
+          echo "pyproject.toml version: $PKG_VERSION"
+          echo "git tag version:        $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::pyproject.toml version ($PKG_VERSION) does not match git tag ($TAG_VERSION)."
+            echo "::error::Bump pyproject.toml or re-tag, then push."
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: |
+          python -m build
+          ls -la dist/
+
+      - name: Validate distributions
+        run: twine check --strict dist/*
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 2. Dry-run publish to TestPyPI. Catches bad metadata, name clashes,
+  #    README render issues, etc. before they hit the real index.
+  # ─────────────────────────────────────────────────────────────────────
+  publish-testpypi:
+    name: Publish to TestPyPI (dry run)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/localcaption/
+    permissions:
+      id-token: write   # required for Trusted Publishing (OIDC)
+    steps:
+      - name: Download dist artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 3. Real PyPI publish. Only runs if TestPyPI succeeded.
+  # ─────────────────────────────────────────────────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/localcaption/
+    permissions:
+      id-token: write   # required for Trusted Publishing (OIDC)
+    steps:
+      - name: Download dist artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 4. Create the GitHub Release with auto-generated notes + dist files.
+  #    Runs in parallel with publish-pypi (no dependency between them).
+  # ─────────────────────────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create a release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dist artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          body: |
+            ## Install
+
+            ### One-line install (recommended)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/jatinkrmalik/localcaption/${{ github.ref_name }}/scripts/install.sh | bash
+            ```
+
+            ### From PyPI
+            ```bash
+            pipx install localcaption
+            ```
+
+            ---
+            See [CHANGELOG.md](https://github.com/jatinkrmalik/localcaption/blob/${{ github.ref_name }}/CHANGELOG.md)
+            for the full list of changes.
