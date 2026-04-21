@@ -78,6 +78,23 @@ After install, verify everything is wired up:
 localcaption doctor
 ```
 
+### Uninstall
+
+To completely remove `localcaption` and everything it installed (the
+binary, whisper.cpp build, and ggml models — about 200 MB total):
+
+```bash
+# pipx + whisper.cpp + models, with confirmation prompts:
+curl -fsSL https://raw.githubusercontent.com/jatinkrmalik/localcaption/main/scripts/uninstall.sh | bash
+
+# Or, if you cloned the repo:
+bash scripts/uninstall.sh
+```
+
+Useful flags: `--dry-run` (preview), `--yes` (skip prompts),
+`--keep-models` (uninstall the binary but keep the 200 MB whisper.cpp +
+models cache for next time).
+
 Sample output:
 
 ```
