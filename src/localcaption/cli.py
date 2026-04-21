@@ -1,12 +1,18 @@
 """Command-line entry point.
 
 Exposed as the ``localcaption`` console script via ``pyproject.toml``.
+
+Two invocation styles are supported:
+
+    localcaption <url> [options]      # one-shot transcription (default)
+    localcaption doctor               # diagnose your install
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,23 +20,53 @@ from . import __version__
 from . import _logging as log
 from .errors import LocalCaptionError
 from .pipeline import transcribe_url
-from .whisper import DEFAULT_MODEL
+from .whisper import DEFAULT_MODEL, WhisperPaths
+
+# Subcommands recognised by the dispatcher. Anything else is treated as a URL
+# and routed to the implicit "transcribe" command for backwards compatibility.
+SUBCOMMANDS = frozenset({"doctor", "transcribe"})
+
+
+# --- whisper.cpp directory resolution ------------------------------------
+
+def _xdg_data_home() -> Path:
+    """Return $XDG_DATA_HOME or its conventional fallback (~/.local/share)."""
+    env = os.environ.get("XDG_DATA_HOME")
+    return Path(env).expanduser() if env else Path.home() / ".local" / "share"
+
+
+def _candidate_whisper_dirs() -> list[Path]:
+    """Where to look for the whisper.cpp checkout, in priority order.
+
+    1. ``$LOCALCAPTION_WHISPER_DIR`` if set (explicit override).
+    2. ``./whisper.cpp`` if running from a dev checkout.
+    3. ``$XDG_DATA_HOME/localcaption/whisper.cpp`` (where ``install.sh`` puts it).
+    """
+    candidates: list[Path] = []
+    env = os.environ.get("LOCALCAPTION_WHISPER_DIR")
+    if env:
+        candidates.append(Path(env).expanduser())
+    candidates.append(Path.cwd() / "whisper.cpp")
+    candidates.append(_xdg_data_home() / "localcaption" / "whisper.cpp")
+    return candidates
 
 
 def _default_whisper_dir() -> Path:
-    """Where to look for the whisper.cpp checkout.
+    """Pick the first existing whisper.cpp directory, or the last candidate.
 
-    Order of resolution:
-        1. ``$LOCALCAPTION_WHISPER_DIR`` if set.
-        2. ``./whisper.cpp`` (the layout produced by ``scripts/setup.sh``).
+    The "last candidate" fallback ensures error messages point users at the
+    canonical install location rather than the dev-only ``./whisper.cpp``.
     """
-    env = os.environ.get("LOCALCAPTION_WHISPER_DIR")
-    if env:
-        return Path(env).expanduser()
-    return Path.cwd() / "whisper.cpp"
+    candidates = _candidate_whisper_dirs()
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return candidates[-1]
 
 
-def _build_parser() -> argparse.ArgumentParser:
+# --- transcribe (default) subcommand -------------------------------------
+
+def _build_transcribe_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="localcaption",
         description="Fully-local YouTube → transcript using yt-dlp + ffmpeg + whisper.cpp.",
@@ -51,7 +87,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--whisper-dir", type=Path, default=None,
         help="path to a built whisper.cpp checkout "
-             "(default: $LOCALCAPTION_WHISPER_DIR or ./whisper.cpp)",
+             "(default: $LOCALCAPTION_WHISPER_DIR, ./whisper.cpp, "
+             "or ~/.local/share/localcaption/whisper.cpp)",
     )
     parser.add_argument(
         "--keep-audio", action="store_true",
@@ -65,8 +102,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+def _cmd_transcribe(argv: list[str]) -> int:
+    args = _build_transcribe_parser().parse_args(argv)
     whisper_dir = args.whisper_dir or _default_whisper_dir()
 
     try:
@@ -93,6 +130,130 @@ def main(argv: list[str] | None = None) -> int:
             print(txt.read_text(encoding="utf-8", errors="replace"))
 
     return 0
+
+
+# --- doctor subcommand ---------------------------------------------------
+
+def _check(label: str, ok: bool, detail: str = "") -> bool:
+    """Print a diagnostic line. Returns ``ok`` for chaining into a final exit code."""
+    mark = "✅" if ok else "❌"
+    suffix = f"  ({detail})" if detail else ""
+    print(f"  {mark} {label}{suffix}")
+    return ok
+
+
+def _cmd_doctor(argv: list[str]) -> int:
+    """Diagnose a localcaption install: prereqs, whisper.cpp, models."""
+    parser = argparse.ArgumentParser(
+        prog="localcaption doctor",
+        description="Diagnose a localcaption install: external tools, "
+                    "whisper.cpp build, available models.",
+    )
+    parser.add_argument(
+        "--whisper-dir", type=Path, default=None,
+        help="check this whisper.cpp directory (default: auto-detect)",
+    )
+    args = parser.parse_args(argv)
+
+    print(f"localcaption {__version__}\n")
+
+    all_ok = True
+
+    print("System tools:")
+    all_ok &= _check("python", True, sys.version.split()[0])
+    ff = shutil.which("ffmpeg")
+    all_ok &= _check("ffmpeg", ff is not None, ff or "missing — `brew install ffmpeg`")
+    git = shutil.which("git")
+    all_ok &= _check("git", git is not None, git or "missing")
+
+    print("\nPython dependencies:")
+    try:
+        import yt_dlp  # noqa: F401
+        from yt_dlp.version import __version__ as ytdlp_ver
+        all_ok &= _check("yt-dlp", True, ytdlp_ver)
+    except ImportError:
+        all_ok &= _check("yt-dlp", False, "missing — `pip install yt-dlp`")
+
+    print("\nwhisper.cpp:")
+    whisper_dir = args.whisper_dir or _default_whisper_dir()
+    print(f"  searching: {whisper_dir}")
+    if whisper_dir.is_dir():
+        _check("directory exists", True, str(whisper_dir))
+        paths = WhisperPaths(whisper_dir)
+        try:
+            binary = paths.find_binary()
+            all_ok &= _check("binary built", True, str(binary))
+        except LocalCaptionError as exc:
+            all_ok &= _check("binary built", False, str(exc).splitlines()[0])
+
+        models_dir = paths.models_dir
+        if models_dir.is_dir():
+            available = sorted(p.name for p in models_dir.glob("ggml-*.bin"))
+            if available:
+                _check("models present", True, ", ".join(available))
+            else:
+                all_ok &= _check(
+                    "models present", False,
+                    f"no ggml-*.bin in {models_dir} — "
+                    f"`bash {models_dir}/download-ggml-model.sh base.en`",
+                )
+        else:
+            all_ok &= _check("models directory", False, str(models_dir))
+    else:
+        all_ok &= _check(
+            "directory exists", False,
+            "run install.sh or set --whisper-dir / $LOCALCAPTION_WHISPER_DIR",
+        )
+
+    print("\nLookup paths searched:")
+    for c in _candidate_whisper_dirs():
+        marker = "✓" if c.is_dir() else "·"
+        print(f"  {marker} {c}")
+
+    print()
+    if all_ok:
+        print("All checks passed. You're good to go: localcaption <url>")
+        return 0
+    else:
+        print("Some checks failed. See messages above.")
+        return 1
+
+
+# --- top-level dispatcher -------------------------------------------------
+
+def _print_top_level_help() -> None:
+    print("""\
+usage: localcaption <url> [options]            transcribe a video (default)
+       localcaption doctor                     diagnose your install
+       localcaption --help                     show transcribe help
+       localcaption --version                  print version
+
+Run `localcaption <subcommand> --help` for details on each.""")
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # Bare invocation → top-level help (exit non-zero, like most CLIs do).
+    if not argv:
+        _print_top_level_help()
+        return 2
+
+    head = argv[0]
+
+    # Allow `localcaption help` as a friendly alias for the top-level help.
+    if head in {"help", "--help-all"}:
+        _print_top_level_help()
+        return 0
+
+    # Explicit subcommands.
+    if head == "doctor":
+        return _cmd_doctor(argv[1:])
+    if head == "transcribe":
+        return _cmd_transcribe(argv[1:])
+
+    # Anything else (URL, --help, --version, …) goes to the default transcribe.
+    return _cmd_transcribe(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover

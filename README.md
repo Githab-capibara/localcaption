@@ -28,22 +28,67 @@ required. Runs happily on a laptop.
 - `git`, `ffmpeg`, `cmake` on your `$PATH`
   (macOS: `brew install ffmpeg cmake`)
 
-### One-shot setup
+### Quick install (recommended for end users)
+
+One command. Installs `localcaption` system-wide via [pipx](https://pipx.pypa.io)
+and bootstraps `whisper.cpp` + a default model. After this you can run
+`localcaption <url>` from any directory.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jatinkrmalik/localcaption/main/scripts/install.sh | bash
+```
+
+What it does:
+
+1. Verifies prerequisites (`python3`, `git`, `ffmpeg`, `cmake`) and installs `pipx` + `cmake` if missing (via `brew` or `apt`).
+2. `pipx install localcaption` — isolated venv, console script on `$PATH`.
+3. Clones & builds `whisper.cpp` into `~/.local/share/localcaption/whisper.cpp/` (XDG-compliant).
+4. Downloads the default `base.en` ggml model.
+
+Override the default model with `WHISPER_MODEL=small.en bash install.sh`.
+
+After install, verify everything is wired up:
+
+```bash
+localcaption doctor
+```
+
+Sample output:
+
+```
+localcaption 0.1.0
+
+System tools:
+  ✅ python  (3.12.3)
+  ✅ ffmpeg  (/opt/homebrew/bin/ffmpeg)
+  ✅ git     (/opt/homebrew/bin/git)
+
+Python dependencies:
+  ✅ yt-dlp  (2025.10.14)
+
+whisper.cpp:
+  searching: /Users/you/.local/share/localcaption/whisper.cpp
+  ✅ directory exists
+  ✅ binary built  (.../build/bin/whisper-cli)
+  ✅ models present  (ggml-base.en.bin)
+
+All checks passed. You're good to go: localcaption <url>
+```
+
+### Dev install (contributors)
+
+If you're hacking on `localcaption` itself, install editable from a clone:
 
 ```bash
 git clone https://github.com/jatinkrmalik/localcaption
 cd localcaption
-./scripts/setup.sh
+./scripts/setup.sh           # creates .venv, pip install -e .[dev], clones+builds whisper.cpp HERE
 source .venv/bin/activate
+pytest                        # 14 tests, all should pass
 ```
 
-This will:
-
-1. Create `.venv/` and pip-install `localcaption` in editable mode.
-2. Clone & build `whisper.cpp` into `./whisper.cpp/`.
-3. Download the default `base.en` ggml model.
-
-Override the default model with `WHISPER_MODEL=small.en ./scripts/setup.sh`.
+The dev setup keeps `whisper.cpp/` inside the repo (so you can poke at it),
+and editable-installs the package so source edits take effect immediately.
 
 ## Usage
 
@@ -58,13 +103,26 @@ localcaption "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 | `-m`, `--model` | `base.en` | whisper model name (`tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v3`, …) |
 | `-o`, `--out` | `./transcripts` | output directory |
 | `-l`, `--language` | `auto` | ISO language code, or `auto` to let whisper detect it |
-| `--whisper-dir` | `./whisper.cpp` | path to a built whisper.cpp checkout (env: `LOCALCAPTION_WHISPER_DIR`) |
+| `--whisper-dir` | auto-detect¹ | path to a built whisper.cpp checkout |
 | `--keep-audio` | off | keep the downloaded audio + intermediate WAV in `<out>/.work/` |
 | `--no-print` | off | don't echo the transcript to stdout |
+
+¹ `--whisper-dir` resolution order:
+   1. The explicit flag value, if given.
+   2. `$LOCALCAPTION_WHISPER_DIR` env var.
+   3. `./whisper.cpp` (dev checkout).
+   4. `~/.local/share/localcaption/whisper.cpp` (where `install.sh` puts it).
 
 Outputs `<videoId>.txt`, `.srt`, `.vtt`, and `.json` in the chosen directory.
 
 You can also invoke it as a module: `python -m localcaption <url>`.
+
+### Subcommands
+
+| Subcommand | What it does |
+|---|---|
+| _(default)_ `localcaption <url>` | Transcribe a single URL. |
+| `localcaption doctor` | Diagnose your install: prereqs, whisper.cpp, available models. Useful before filing a bug. |
 
 ### Python API
 

@@ -50,6 +50,13 @@ body:
       required: true
 
   - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `localcaption doctor`
+      description: Paste the full output. This catches 90% of "it doesn't work" causes.
+      render: shell
+
+  - type: textarea
     id: context
     attributes:
       label: Anything else?
