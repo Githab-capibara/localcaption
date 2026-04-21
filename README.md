@@ -162,30 +162,27 @@ hardware in the **Hardware** column.
 
 ## Roadmap
 
-These are tracked here for now and will graduate to GitHub Issues / Discussions
-once we have community traction.
+The roadmap lives on GitHub Issues so it's easy to track, comment on, and
+contribute to:
 
-- [ ] **Better default model.** Switch the default from `base.en` to `small.en`
-      for noticeably better accuracy at a still-reasonable speed, with
-      `--model tiny.en` documented as the "fast" fallback.
-- [ ] **Batch mode.** `--batch urls.txt` to transcribe a list of URLs in one
-      go, with per-URL output directories, resume-on-failure, and a final
-      summary table (✅ / ❌ + duration). Useful for catching up on a whole
-      podcast feed or playlist.
-- [ ] **Local auto-summary.** `--summary` flag that pipes the transcript
-      through a locally-hosted LLM (e.g. via [Ollama](https://ollama.com))
-      and writes `<videoId>.summary.md` next to the transcript. Configurable
-      model + prompt template, no cloud round-trips.
-- [ ] **Speaker diarization (stretch).** Optional `--diarize` using
-      [`pyannote.audio`](https://github.com/pyannote/pyannote-audio) so the
-      transcript reads `Speaker 1:` / `Speaker 2:` instead of one wall of text.
-- [ ] **Chapters & search index.** Detect YouTube chapter markers and split
-      the transcript by section; emit a tiny JSON index for grep-able search
-      across past transcripts.
-- [ ] **Pluggable backends.** Allow swapping `whisper.cpp` for
-      `faster-whisper` or `lightning-whisper-mlx` behind the same interface.
+👉 **[Open roadmap items](https://github.com/jatinkrmalik/localcaption/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap)**
 
-Got an idea? Open a [feature request](https://github.com/jatinkrmalik/localcaption/issues/new/choose).
+A snapshot of what's planned (click through for full descriptions, acceptance
+criteria, and discussion):
+
+| # | Item | Labels |
+|---|---|---|
+| [#1](https://github.com/jatinkrmalik/localcaption/issues/1) | Switch default model from `base.en` to `small.en` | `good first issue` |
+| [#2](https://github.com/jatinkrmalik/localcaption/issues/2) | Batch mode (`--batch urls.txt`) | `enhancement` |
+| [#3](https://github.com/jatinkrmalik/localcaption/issues/3) | Local auto-summary via Ollama (`--summary`) | `enhancement` |
+| [#4](https://github.com/jatinkrmalik/localcaption/issues/4) | Speaker diarization with pyannote.audio (`--diarize`) | `stretch`, `help wanted` |
+| [#5](https://github.com/jatinkrmalik/localcaption/issues/5) | YouTube chapters & grep-able search index | `enhancement` |
+| [#6](https://github.com/jatinkrmalik/localcaption/issues/6) | Pluggable transcription backends (faster-whisper / MLX) | `help wanted` |
+
+**Have an idea?** Open a
+[feature request](https://github.com/jatinkrmalik/localcaption/issues/new/choose) —
+or jump into [Discussions](https://github.com/jatinkrmalik/localcaption/discussions)
+if you want to chat about it first.
 
 ## Related projects
 
