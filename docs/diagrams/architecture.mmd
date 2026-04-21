@@ -1,0 +1,70 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#EFF6FF',
+  'primaryBorderColor':'#3B82F6',
+  'primaryTextColor':'#1E3A8A',
+  'lineColor':'#1E3A8A',
+  'fontFamily':'Inter, system-ui, sans-serif',
+  'clusterBkg':'#F8FAFC',
+  'clusterBorder':'#94A3B8'
+}}}%%
+flowchart TB
+    USER(["👤 user"]):::user
+
+    subgraph PKG["src/localcaption/  — Python package"]
+        direction TB
+
+        subgraph ENTRY["entry points"]
+            CLI["cli.py<br/><i>argparse · main()</i>"]:::entry
+            MAIN["__main__.py<br/><i>python -m localcaption</i>"]:::entry
+        end
+
+        subgraph CORE["orchestration"]
+            PIPE["pipeline.py<br/><b>transcribe_url()</b><br/><i>public API</i>"]:::core
+        end
+
+        subgraph STAGES["pipeline stages — single responsibility"]
+            DL["download.py<br/><i>yt-dlp Python API</i>"]:::stage
+            AU["audio.py<br/><i>ffmpeg subprocess</i>"]:::stage
+            WH["whisper.py<br/><i>whisper.cpp subprocess</i>"]:::stage
+        end
+
+        subgraph SUPPORT["support modules"]
+            ERR["errors.py<br/>LocalCaptionError<br/>├─ DependencyError<br/>├─ DownloadError<br/>├─ AudioConversionError<br/>└─ TranscriptionError"]:::support
+            LOG["_logging.py"]:::support
+        end
+    end
+
+    subgraph EXT["external dependencies"]
+        YTDLP[("yt-dlp<br/><i>pip dep</i>")]:::extdep
+        FFMPEG[("ffmpeg<br/><i>system binary</i>")]:::extdep
+        WCPP[("whisper.cpp<br/><i>./whisper.cpp/</i><br/>built by setup.sh")]:::extdep
+        MODEL[("ggml model<br/><i>./whisper.cpp/models/</i>")]:::extdep
+    end
+
+    USER -->|"localcaption &lt;url&gt;"| CLI
+    USER -->|"python -m localcaption"| MAIN
+    MAIN --> CLI
+    CLI -->|"transcribe_url(...)"| PIPE
+    PIPE --> DL
+    PIPE --> AU
+    PIPE --> WH
+
+    DL  -.imports.-> ERR
+    AU  -.imports.-> ERR
+    WH  -.imports.-> ERR
+    DL  -.imports.-> LOG
+    AU  -.imports.-> LOG
+    WH  -.imports.-> LOG
+    PIPE -.imports.-> LOG
+
+    DL --> YTDLP
+    AU --> FFMPEG
+    WH --> WCPP
+    WH --> MODEL
+
+    classDef user    fill:#FEF3C7,stroke:#D97706,color:#78350F,font-weight:bold;
+    classDef entry   fill:#FCE7F3,stroke:#DB2777,color:#831843,font-weight:bold;
+    classDef core    fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,font-weight:bold;
+    classDef stage   fill:#DCFCE7,stroke:#16A34A,color:#14532D;
+    classDef support fill:#F3E8FF,stroke:#9333EA,color:#581C87;
+    classDef extdep  fill:#E2E8F0,stroke:#475569,color:#0F172A,font-style:italic;

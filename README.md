@@ -18,18 +18,7 @@
 Nothing is uploaded to a third-party service. No OpenAI / Google / DeepL keys
 required. Runs happily on a laptop.
 
-```
-YouTube URL
-   │  yt-dlp -f bestaudio
-   ▼
-audio file (m4a / webm / opus / …)
-   │  ffmpeg → 16 kHz mono PCM WAV
-   ▼
-.wav
-   │  whisper.cpp (CPU or Metal/CUDA)
-   ▼
-.txt / .srt / .vtt / .json
-```
+![Pipeline overview](docs/diagrams/pipeline.png)
 
 ## Install
 
@@ -91,6 +80,39 @@ result = transcribe_url(
 )
 print(result.transcripts.txt.read_text())
 ```
+
+## Architecture
+
+`localcaption` is intentionally tiny: an orchestrator (`pipeline.py`) drives
+three single-responsibility stages, each wrapping one external tool. The
+modules are split this way so that a contributor can swap, say, `whisper.cpp`
+for `faster-whisper` without touching `download.py` or `audio.py`.
+
+### Module map
+
+![Module architecture](docs/diagrams/architecture.png)
+
+| Layer | Files | Responsibility |
+|---|---|---|
+| Entry points | `cli.py`, `__main__.py` | argparse, exit codes, stdout formatting |
+| Orchestration | `pipeline.py` | public Python API: `transcribe_url(...)` |
+| Pipeline stages | `download.py`, `audio.py`, `whisper.py` | one external tool each |
+| Support | `errors.py`, `_logging.py` | exception hierarchy, tiny logger |
+
+### Runtime sequence
+
+End-to-end call flow for a single `localcaption <url>` invocation, including
+the subprocess hops to yt-dlp, ffmpeg, and whisper.cpp. The intermediate
+`.work/` directory is cleaned up at the end unless `--keep-audio` is passed.
+
+![Sequence diagram](docs/diagrams/sequence.png)
+
+> Diagrams live in [`docs/diagrams/`](docs/diagrams) as Mermaid `.mmd` source
+> files alongside the rendered PNGs. Regenerate with:
+> ```bash
+> mmdc -i docs/diagrams/<name>.mmd -o docs/diagrams/<name>.png \
+>   -t default -b transparent --width 1600 --scale 2
+> ```
 
 ## Benchmarks
 

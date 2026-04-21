@@ -1,0 +1,30 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#EFF6FF',
+  'primaryBorderColor':'#3B82F6',
+  'primaryTextColor':'#1E3A8A',
+  'lineColor':'#1E3A8A',
+  'fontFamily':'Inter, system-ui, sans-serif'
+}}}%%
+flowchart LR
+    URL([🌐 YouTube URL]):::input
+
+    subgraph S1["Stage 1 — download"]
+        YT["yt-dlp<br/><i>Python API</i>"]:::tool
+        AUDIO[("🎧 audio<br/>m4a / webm / opus")]:::artifact
+    end
+
+    subgraph S2["Stage 2 — re-encode"]
+        FF["ffmpeg"]:::tool
+        WAV[("🔊 16 kHz mono<br/>PCM WAV")]:::artifact
+    end
+
+    subgraph S3["Stage 3 — transcribe"]
+        WCPP["whisper.cpp<br/><i>Metal / CUDA / CPU</i>"]:::tool
+        OUT[("📝 .txt · .srt<br/>.vtt · .json")]:::artifact
+    end
+
+    URL --> YT --> AUDIO --> FF --> WAV --> WCPP --> OUT
+
+    classDef input    fill:#FEF3C7,stroke:#D97706,color:#78350F,font-weight:bold;
+    classDef tool     fill:#DBEAFE,stroke:#3B82F6,color:#1E3A8A,font-weight:bold;
+    classDef artifact fill:#DCFCE7,stroke:#16A34A,color:#14532D;

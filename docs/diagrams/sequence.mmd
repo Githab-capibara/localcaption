@@ -1,0 +1,58 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#EFF6FF',
+  'actorBkg':'#DBEAFE',
+  'actorBorder':'#2563EB',
+  'actorTextColor':'#1E3A8A',
+  'signalColor':'#1E3A8A',
+  'signalTextColor':'#0F172A',
+  'noteBkgColor':'#FEF3C7',
+  'noteTextColor':'#78350F',
+  'noteBorderColor':'#D97706',
+  'fontFamily':'Inter, system-ui, sans-serif'
+}}}%%
+sequenceDiagram
+    autonumber
+    actor User
+    participant CLI       as cli.py
+    participant Pipe      as pipeline.py
+    participant Download  as download.py
+    participant Audio     as audio.py
+    participant Whisper   as whisper.py
+    participant YT        as yt-dlp
+    participant FF        as ffmpeg
+    participant WCPP      as whisper.cpp
+
+    User->>CLI: localcaption <url> -m base.en
+    CLI->>Pipe: transcribe_url(url, out_dir, whisper_dir, model)
+
+    rect rgb(220, 252, 231)
+    note right of Pipe: Stage 1 — download
+    Pipe->>Download: download_audio(url, work_dir)
+    Download->>YT: YoutubeDL(opts).extract_info(url, download=True)
+    note over YT: player_client = [android, ios, web]<br/>retries = 5
+    YT-->>Download: info dict (id, ext, ...)
+    Download->>Download: prepare_filename(info)
+    Download-->>Pipe: Path(audio_file)
+    end
+
+    rect rgb(219, 234, 254)
+    note right of Pipe: Stage 2 — re-encode
+    Pipe->>Audio: to_whisper_wav(audio, wav_path)
+    Audio->>FF: subprocess(ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le)
+    FF-->>Audio: 16 kHz mono WAV
+    Audio-->>Pipe: Path(wav_file)
+    end
+
+    rect rgb(252, 231, 243)
+    note right of Pipe: Stage 3 — transcribe
+    Pipe->>Whisper: transcribe(wav, model, out_base, whisper_dir)
+    Whisper->>Whisper: WhisperPaths.find_binary()
+    Whisper->>WCPP: subprocess(whisper-cli -m model -f wav -otxt -osrt -ovtt -oj)
+    note over WCPP: Metal on Apple Silicon<br/>CUDA on NVIDIA<br/>CPU fallback otherwise
+    WCPP-->>Whisper: writes .txt / .srt / .vtt / .json
+    Whisper-->>Pipe: TranscriptionResult
+    end
+
+    Pipe->>Pipe: shutil.rmtree(work_dir)  [unless --keep-audio]
+    Pipe-->>CLI: PipelineResult
+    CLI-->>User: print transcript paths + body
