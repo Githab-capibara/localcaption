@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from localcaption.asr import TranscriptionResult
 from localcaption.batch import (
     BatchItem,
     BatchResult,
@@ -14,7 +15,6 @@ from localcaption.batch import (
 )
 from localcaption.errors import DownloadError
 from localcaption.pipeline import PipelineResult
-from localcaption.whisper import BACKEND_FASTER_WHISPER, TranscriptionResult
 
 
 def _result(url: str, duration_s: float | None = 1120.0) -> PipelineResult:
@@ -101,7 +101,7 @@ class TestTranscribeUrls:
     def test_skip_existing(self, monkeypatch, tmp_path: Path) -> None:
         out = tmp_path / "transcripts"
         vid = "aircAruvnKk"
-        existing = out / vid / f"{vid}.txt"
+        existing = out / vid / f"{vid}.md"
         existing.parent.mkdir(parents=True)
         existing.write_text("already done", encoding="utf-8")
 
@@ -116,7 +116,6 @@ class TestTranscribeUrls:
         result = transcribe_urls(
             [f"https://www.youtube.com/watch?v={vid}"],
             out_dir=out,
-            whisper_dir=tmp_path / "whisper.cpp",
         )
         assert called == []
         assert len(result.items) == 1
@@ -140,7 +139,6 @@ class TestTranscribeUrls:
         result = transcribe_urls(
             [ok_url, bad_url, third],
             out_dir=tmp_path / "transcripts",
-            whisper_dir=tmp_path / "whisper.cpp",
         )
         assert [i.status for i in result.items] == ["ok", "failed", "ok"]
         assert result.items[1].error is not None
@@ -171,33 +169,18 @@ class TestTranscribeUrls:
         transcribe_urls(
             ["https://youtu.be/PSRJfaAYkW4"],
             out_dir=out,
-            whisper_dir=tmp_path / "w",
-            model="small.en",
+            language="ru",
+            force_model="qwen3-asr-0.6b",
         )
         assert captured["out_dir"] == out / "PSRJfaAYkW4"
         assert captured["stem"] == "PSRJfaAYkW4"
-        assert captured["model"] == "small.en"
-
-    def test_forwards_backend(self, monkeypatch, tmp_path: Path) -> None:
-        captured: dict[str, object] = {}
-
-        def fake_transcribe_url(url, **kw):
-            captured["backend"] = kw.get("backend")
-            return _result(url)
-
-        monkeypatch.setattr("localcaption.batch.transcribe_url", fake_transcribe_url)
-        transcribe_urls(
-            ["https://youtu.be/PSRJfaAYkW4"],
-            out_dir=tmp_path / "transcripts",
-            backend=BACKEND_FASTER_WHISPER,
-        )
-        assert captured["backend"] == BACKEND_FASTER_WHISPER
+        assert captured["force_model"] == "qwen3-asr-0.6b"
+        assert captured["language"] == "ru"
 
     def test_empty_list(self, tmp_path: Path) -> None:
         result = transcribe_urls(
             [],
             out_dir=tmp_path / "transcripts",
-            whisper_dir=tmp_path / "w",
         )
         assert result.items == []
         assert result.exit_code() == 0
@@ -219,7 +202,7 @@ class TestTranscribeUrls:
             "https://example.com/fail",
             "https://example.com/ok2",
         ]
-        result = transcribe_urls(urls, out_dir=tmp_path / "t", whisper_dir=tmp_path / "w")
+        result = transcribe_urls(urls, out_dir=tmp_path / "t")
         assert order == urls
         assert [i.status for i in result.items] == ["ok", "failed", "ok"]
 
@@ -235,7 +218,7 @@ class TestTranscribeUrls:
             str(tmp_path / "show1" / "audio.mp3"),
             str(tmp_path / "show2" / "audio.mp3"),
         ]
-        result = transcribe_urls(urls, out_dir=tmp_path / "t", whisper_dir=tmp_path / "w")
+        result = transcribe_urls(urls, out_dir=tmp_path / "t")
         assert called == urls
         assert [i.status for i in result.items] == ["ok", "ok"]
         assert result.items[0].video_id != result.items[1].video_id
@@ -249,11 +232,7 @@ class TestTranscribeUrls:
             return _result(url)
 
         monkeypatch.setattr("localcaption.batch.transcribe_url", fake_transcribe_url)
-        transcribe_urls(
-            ["~/talk.mp4"],
-            out_dir=tmp_path / "t",
-            whisper_dir=tmp_path / "w",
-        )
+        transcribe_urls(["~/talk.mp4"], out_dir=tmp_path / "t")
         assert captured == [str(tmp_path / "talk.mp4")]
 
 

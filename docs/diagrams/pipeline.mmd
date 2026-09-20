@@ -12,7 +12,7 @@ flowchart LR
 
     subgraph S1["Stage 1 · Download"]
         direction LR
-        YT(["yt-dlp<br/><i>Python API</i>"]):::tool
+        YT(["yt-dlp<br/><i>via SOCKS5 proxy</i>"]):::tool
         AUDIO[/"🎧 audio<br/>m4a · webm · opus"/]:::artifact
         YT --> AUDIO
     end
@@ -24,16 +24,24 @@ flowchart LR
         FF --> WAV
     end
 
-    subgraph S3["Stage 3 · Transcribe"]
+    subgraph S3["Stage 3 · Language ID"]
         direction LR
-        WCPP(["whisper.cpp · faster-whisper<br/><i>pluggable backend</i>"]):::tool
+        SP(["speechbrain ECAPA-TDNN<br/><i>45 languages</i>"]):::tool
+        LANG[/"🏷️ language + confidence<br/>ru · en · other"/]:::artifact
+        SP --> LANG
+    end
+
+    subgraph S4["Stage 4 · Routed ASR"]
+        direction LR
+        ASR(["Qwen3-ASR · Parakeet TDT · Nemotron 3.5<br/><i>isolated venv per family</i>"]):::tool
         OUT[/"📝 transcript<br/>.txt · .srt · .vtt · .json"/]:::output
+        ASR --> OUT
     end
 
     URL --> YT
     AUDIO --> FF
-    WAV --> WCPP
-    WCPP --> OUT
+    WAV --> SP
+    LANG --> ASR
 
     classDef input    fill:#FEF3C7,stroke:#D97706,color:#78350F,font-weight:bold,stroke-width:2px;
     classDef tool     fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,font-weight:bold,stroke-width:2px;

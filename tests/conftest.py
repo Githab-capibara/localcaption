@@ -2,21 +2,12 @@
 
 from __future__ import annotations
 
-import sys
-import types
-
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _clear_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep backend selection tests independent of the host environment."""
-    monkeypatch.delenv("LOCALCAPTION_BACKEND", raising=False)
-
-
-@pytest.fixture
-def dummy_faster_whisper(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pretend ``faster-whisper`` is importable without loading a real model."""
-    mod = types.ModuleType("faster_whisper")
-    mod.WhisperModel = type("WhisperModel", (), {})
-    monkeypatch.setitem(sys.modules, "faster_whisper", mod)
+def _isolate_localcaption_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Keep tests away from the real 7 GB models, runtimes, and search index."""
+    monkeypatch.setenv("LOCALCAPTION_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("LOCALCAPTION_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("LOCALCAPTION_INDEX_PATH", str(tmp_path / "index.jsonl"))

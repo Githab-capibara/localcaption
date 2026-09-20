@@ -1,8 +1,11 @@
 """Stage 2: re-encode arbitrary audio to 16 kHz mono PCM WAV.
 
-whisper.cpp expects exactly that format, so this stage is a hard requirement
-even when the source is already a `.wav` (sample rate / channel count may
-not match).
+All our ASR models expect 16 kHz mono input, so this stage is a hard
+requirement even when the source is already a ``.wav`` (sample rate or
+channel count may not match).
+
+``ffmpeg`` is intentionally *not* routed through the proxy: it only touches
+local files.
 """
 
 from __future__ import annotations
@@ -14,11 +17,11 @@ from pathlib import Path
 from . import _logging as log
 from .errors import AudioConversionError, DependencyError
 
-WHISPER_SAMPLE_RATE = 16_000
-WHISPER_CHANNELS = 1
+TARGET_SAMPLE_RATE = 16_000
+TARGET_CHANNELS = 1
 
 
-def to_whisper_wav(src: Path, dst: Path) -> Path:
+def to_wav(src: Path, dst: Path) -> Path:
     """Convert *src* to a 16 kHz mono PCM WAV at *dst* and return *dst*."""
     if shutil.which("ffmpeg") is None:
         raise DependencyError(
@@ -29,13 +32,13 @@ def to_whisper_wav(src: Path, dst: Path) -> Path:
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", str(src),
-        "-ac", str(WHISPER_CHANNELS),
-        "-ar", str(WHISPER_SAMPLE_RATE),
+        "-ac", str(TARGET_CHANNELS),
+        "-ar", str(TARGET_SAMPLE_RATE),
         "-vn",                       # drop any video stream
         "-c:a", "pcm_s16le",         # signed 16-bit little-endian PCM
         str(dst),
     ]
-    log.info(f"ffmpeg: re-encoding to {WHISPER_SAMPLE_RATE} Hz mono WAV")
+    log.info(f"ffmpeg: re-encoding to {TARGET_SAMPLE_RATE} Hz mono WAV")
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as exc:

@@ -8,12 +8,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from localcaption import cli, models
 
 
 def _run(argv: list[str]) -> int:
-    """Run the CLI main() with no global side effects, return exit code."""
     return cli.main(argv)
+
+
+def _install(key: str) -> None:
+    spec = models.get_model(key)
+    for rel in spec.files:
+        target = spec.local_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"\0" * (2_000_000 if rel == "model.safetensors" else 8))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -26,7 +35,7 @@ def test_bare_model_prints_usage(capsys):
     out = capsys.readouterr().out
     assert "subcommands" in out
     assert "list" in out and "download" in out and "rm" in out
-    assert rc == 2  # bare invocation is an error per CLI conventions
+    assert rc == 2
 
 
 def test_model_help_exits_zero(capsys):
@@ -48,60 +57,22 @@ def test_unknown_subcommand_is_rejected(capsys):
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _make_whisper(tmp_path: Path, installed: list[str]) -> Path:
-    whisper = tmp_path / "whisper.cpp"
-    (whisper / "models").mkdir(parents=True)
-    for name in installed:
-        (whisper / "models" / f"ggml-{name}.bin").write_bytes(b"x")
-    return whisper
-
-
-def test_list_includes_all_known_models(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, [])
-    rc = _run(["model", "list", "--whisper-dir", str(whisper)])
+def test_list_includes_all_known_models(capsys):
+    rc = _run(["model", "list"])
     out = capsys.readouterr().out
-
     assert rc == 0
     for spec in models.known_models():
-        assert spec.name in out
+        assert spec.key in out
     assert "not installed" in out
 
 
-def test_list_marks_installed_models(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, ["base.en"])
-    rc = _run(["model", "list", "--whisper-dir", str(whisper)])
+def test_list_marks_installed_models(capsys):
+    _install("langid-ecapa")
+    rc = _run(["model", "list"])
     out = capsys.readouterr().out
-
     assert rc == 0
-    # The installed marker should appear at least once
-    assert "installed" in out
-    # base.en line must be on the same line as the installed marker
-    base_line = next(line for line in out.splitlines() if line.lstrip().startswith("base.en "))
-    assert "installed" in base_line
-
-
-def test_list_works_when_whisper_dir_missing(tmp_path, capsys):
-    """`model list` should never crash just because whisper.cpp isn't installed.
-
-    This is critical: a brand-new user runs `model list` to figure out what
-    to install BEFORE installing whisper.cpp.
-    """
-    nonexistent = tmp_path / "no-whisper-here"
-    rc = _run(["model", "list", "--whisper-dir", str(nonexistent)])
-    out = capsys.readouterr().out
-
-    assert rc == 0
-    assert "base.en" in out
-    assert "not installed" in out
-
-
-def test_list_surfaces_orphan_models(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, ["base.en", "my-finetune"])
-    _run(["model", "list", "--whisper-dir", str(whisper)])
-    out = capsys.readouterr().out
-
-    assert "Other models found on disk" in out
-    assert "my-finetune" in out
+    line = next(ln for ln in out.splitlines() if ln.lstrip().startswith("langid-ecapa"))
+    assert "installed" in line
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -109,28 +80,25 @@ def test_list_surfaces_orphan_models(tmp_path, capsys):
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_info_shows_metadata_for_known_model(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, [])
-    rc = _run(["model", "info", "small.en", "--whisper-dir", str(whisper)])
+def test_info_shows_metadata_for_known_model(capsys):
+    rc = _run(["model", "info", "parakeet-tdt-0.6b-v3"])
     out = capsys.readouterr().out
-
     assert rc == 0
-    assert "small.en" in out
-    assert "English-only" in out
+    assert "parakeet-tdt-0.6b-v3" in out
+    assert "english" in out
     assert "huggingface.co" in out
     assert "Installed:    no" in out
 
 
-def test_info_shows_installed_status_when_present(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, ["small.en"])
-    rc = _run(["model", "info", "small.en", "--whisper-dir", str(whisper)])
+def test_info_shows_installed_status_when_present(capsys):
+    _install("qwen3-asr-0.6b")
+    rc = _run(["model", "info", "qwen3-asr-0.6b"])
     out = capsys.readouterr().out
-
     assert rc == 0
     assert "Installed:    yes" in out
 
 
-def test_info_unknown_model_returns_error(tmp_path, capsys):
+def test_info_unknown_model_returns_error(capsys):
     rc = _run(["model", "info", "totally-fake"])
     err = capsys.readouterr().err
     assert "Unknown model" in err
@@ -138,35 +106,57 @@ def test_info_unknown_model_returns_error(tmp_path, capsys):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# `model download`
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_download_invokes_registry(monkeypatch, capsys):
+    called: list[str] = []
+    monkeypatch.setattr(models, "download_model", lambda key, force=False: called.append(key) or Path("/x"))
+    rc = _run(["model", "download", "qwen3-asr-0.6b"])
+    assert rc == 0
+    assert called == ["qwen3-asr-0.6b"]
+
+
+def test_download_all(monkeypatch, capsys):
+    called: list[str] = []
+    monkeypatch.setattr(models, "download_model", lambda key, force=False: called.append(key) or Path("/x"))
+    rc = _run(["model", "download", "--all"])
+    assert rc == 0
+    assert len(called) == len(models.known_models())
+
+
+def test_download_requires_key_or_all(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        _run(["model", "download"])
+    assert excinfo.value.code == 2
+
+
+# ──────────────────────────────────────────────────────────────────────
 # `model rm`
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_rm_with_yes_flag_removes(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, ["base.en"])
-    target = whisper / "models" / "ggml-base.en.bin"
-    assert target.is_file()
-
-    rc = _run(["model", "rm", "base.en", "--whisper-dir", str(whisper), "-y"])
+def test_rm_with_yes_flag_removes(capsys):
+    _install("langid-ecapa")
+    target = models.get_model("langid-ecapa").local_dir
+    assert target.is_dir()
+    rc = _run(["model", "rm", "langid-ecapa", "-y"])
     out = capsys.readouterr().out
-
     assert rc == 0
     assert not target.exists()
     assert "Removed" in out
 
 
-def test_rm_missing_model_returns_error(tmp_path, capsys):
-    whisper = _make_whisper(tmp_path, [])
-    rc = _run(["model", "rm", "base.en", "--whisper-dir", str(whisper), "-y"])
+def test_rm_missing_model_returns_error(capsys):
+    rc = _run(["model", "rm", "langid-ecapa", "-y"])
     err = capsys.readouterr().err
-
     assert rc == 1
     assert "not installed" in err
 
 
-def test_rm_aliases(tmp_path):
-    """Both `rm`, `remove`, and `delete` should work — small affordance."""
+def test_rm_aliases():
     for alias in ("rm", "remove", "delete"):
-        whisper = _make_whisper(tmp_path / alias, ["base.en"])
-        rc = _run(["model", alias, "base.en", "--whisper-dir", str(whisper), "-y"])
+        _install("parakeet-tdt-0.6b-v3")
+        rc = _run(["model", alias, "parakeet-tdt-0.6b-v3", "-y"])
         assert rc == 0, f"alias {alias!r} failed"

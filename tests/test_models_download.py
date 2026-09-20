@@ -1,15 +1,12 @@
-"""Integration test for `models.download_model` against a local HTTP server.
+"""Tests for the curl-based model downloader.
 
-We don't want CI to hit the real Hugging Face servers (flaky, slow, and
-rude), but we DO want to exercise the actual urllib + progress + atomic-rename
-code path. So we spin up a tiny HTTPServer in a thread, monkeypatch the
-registry's HF_BASE_URL to point at it, and run the real downloader.
+We mock the subprocess boundary rather than hit Hugging Face (slow, flaky,
+and requires the proxy). The interesting logic is: which files get fetched,
+skip-when-present, force, and the atomic ``.part`` → final rename.
 """
 
 from __future__ import annotations
 
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -17,144 +14,72 @@ import pytest
 from localcaption import models
 from localcaption.errors import DependencyError
 
-# ──────────────────────────────────────────────────────────────────────
-# Tiny HTTP server fixture
-# ──────────────────────────────────────────────────────────────────────
+
+def _fake_curl(monkeypatch: pytest.MonkeyPatch, *, body: bytes = b"payload") -> list[list[str]]:
+    """Make ``subprocess.run`` behave like a successful curl."""
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], check: bool) -> None:
+        calls.append(cmd)
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.write_bytes(body)
+
+    monkeypatch.setattr(models.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(models.subprocess, "run", fake_run)
+    return calls
 
 
-FAKE_PAYLOAD = b"fake-ggml-data-" * 1000  # ~15 KB; enough to test progress + I/O
+def test_run_curl_builds_proxy_command_and_renames(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _fake_curl(monkeypatch)
+    dest = tmp_path / "model.safetensors"
+    models._run_curl("https://example.com/model.safetensors", dest)
+
+    cmd = calls[0]
+    assert cmd[0] == "curl"
+    assert "https://example.com/model.safetensors" in cmd
+    assert cmd[cmd.index("--proxy") + 1] == models.get_proxy()
+    assert dest.read_bytes() == b"payload"
+    assert not dest.with_name(dest.name + ".part").exists()
 
 
-class _FakeWhisperHandler(BaseHTTPRequestHandler):
-    """Serves any /ggml-*.bin path with the same fake payload."""
+def test_download_model_fetches_only_missing_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = models.get_model("langid-ecapa")
+    present = spec.local_dir / spec.files[0]
+    present.parent.mkdir(parents=True, exist_ok=True)
+    present.write_bytes(b"already here")
 
-    truncate_after: int | None = None  # set per-test to simulate truncation
-    fail_with_status: int | None = None  # set per-test to simulate HTTP error
+    fetched: list[str] = []
+    monkeypatch.setattr(models, "_run_curl", lambda url, dest: fetched.append(url))
 
-    def do_GET(self):  # noqa: N802 (BaseHTTPRequestHandler convention)
-        if self.fail_with_status is not None:
-            self.send_response(self.fail_with_status)
-            self.end_headers()
-            return
-
-        if not self.path.endswith(".bin"):
-            self.send_response(404)
-            self.end_headers()
-            return
-
-        self.send_response(200)
-        body = FAKE_PAYLOAD
-        if self.truncate_after is not None:
-            # Lie about Content-Length to simulate a truncated download.
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body[: self.truncate_after])
-        else:
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-    def log_message(self, *args, **kwargs):  # silence test noise
-        pass
+    models.download_model("langid-ecapa")
+    assert len(fetched) == len(spec.files) - 1
+    assert all(url.startswith(spec.url_base) for url in fetched)
+    assert present.read_bytes() == b"already here"
 
 
-@pytest.fixture
-def fake_hf_server(monkeypatch):
-    """Spin up an HTTPServer that mimics huggingface.co for the duration of one test."""
-    # Reset class-level mutable defaults
-    _FakeWhisperHandler.truncate_after = None
-    _FakeWhisperHandler.fail_with_status = None
+def test_download_model_force_refetches_everything(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = models.get_model("langid-ecapa")
+    for rel in spec.files:
+        target = spec.local_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x")
 
-    server = HTTPServer(("127.0.0.1", 0), _FakeWhisperHandler)
-    port = server.server_address[1]
-
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    # Redirect the registry's URL base to the fake server.
-    monkeypatch.setattr(models, "HF_BASE_URL", f"http://127.0.0.1:{port}")
-
-    yield _FakeWhisperHandler
-
-    server.shutdown()
-    server.server_close()
+    fetched: list[str] = []
+    monkeypatch.setattr(models, "_run_curl", lambda url, dest: fetched.append(url))
+    models.download_model("langid-ecapa", force=True)
+    assert len(fetched) == len(spec.files)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Tests
-# ──────────────────────────────────────────────────────────────────────
+def test_download_all_covers_every_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    fetched: list[str] = []
+    monkeypatch.setattr(models, "_run_curl", lambda url, dest: fetched.append(url))
+    paths = models.download_all()
+    assert len(paths) == len(models.known_models())
+    total_files = sum(len(m.files) for m in models.known_models())
+    assert len(fetched) == total_files
 
 
-def _empty_whisper_tree(root: Path) -> Path:
-    whisper = root / "whisper.cpp"
-    (whisper / "models").mkdir(parents=True)
-    return whisper
-
-
-def test_download_writes_file_atomically(tmp_path, fake_hf_server):
-    whisper = _empty_whisper_tree(tmp_path)
-
-    result = models.download_model("base.en", whisper)
-
-    assert result.is_file()
-    assert result.read_bytes() == FAKE_PAYLOAD
-    # Atomic-rename invariant: no .part file left lying around
-    assert not result.with_suffix(".bin.part").exists()
-
-
-def test_download_progress_callback_is_invoked(tmp_path, fake_hf_server):
-    whisper = _empty_whisper_tree(tmp_path)
-    calls: list[tuple[int, int]] = []
-
-    models.download_model(
-        "base.en", whisper, on_progress=lambda d, t: calls.append((d, t))
-    )
-
-    assert calls, "progress callback was never called"
-    final_downloaded, final_total = calls[-1]
-    assert final_downloaded == final_total == len(FAKE_PAYLOAD)
-
-
-def test_download_skips_when_already_present(tmp_path, fake_hf_server):
-    whisper = _empty_whisper_tree(tmp_path)
-    target = models.model_path(whisper, "base.en")
-    target.write_bytes(b"existing-content")
-
-    # Should be a no-op (no overwrite, no exception)
-    result = models.download_model("base.en", whisper)
-    assert result.read_bytes() == b"existing-content"
-
-
-def test_download_force_overwrites(tmp_path, fake_hf_server):
-    whisper = _empty_whisper_tree(tmp_path)
-    target = models.model_path(whisper, "base.en")
-    target.write_bytes(b"stale")
-
-    models.download_model("base.en", whisper, force=True)
-    assert target.read_bytes() == FAKE_PAYLOAD
-
-
-def test_download_truncated_response_raises(tmp_path, fake_hf_server):
-    _FakeWhisperHandler = fake_hf_server  # alias for clarity
-    _FakeWhisperHandler.truncate_after = 100  # send only 100 bytes despite 15 KB header
-
-    whisper = _empty_whisper_tree(tmp_path)
-    with pytest.raises(DependencyError) as exc_info:
-        models.download_model("base.en", whisper)
-    assert "Truncated" in str(exc_info.value)
-    # The .part file must have been cleaned up
-    assert not models.model_path(whisper, "base.en").exists()
-    assert not models.model_path(whisper, "base.en").with_suffix(".bin.part").exists()
-
-
-def test_download_http_error_is_friendly(tmp_path, fake_hf_server):
-    fake_hf_server.fail_with_status = 503
-
-    whisper = _empty_whisper_tree(tmp_path)
-    with pytest.raises(DependencyError) as exc_info:
-        models.download_model("base.en", whisper)
-    msg = str(exc_info.value)
-    assert "Download failed" in msg
-    assert "503" in msg
-    # No leftover artefacts on disk
-    assert not models.model_path(whisper, "base.en").exists()
+def test_run_curl_requires_curl(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(models.shutil, "which", lambda _name: None)
+    with pytest.raises(DependencyError, match="curl"):
+        models._run_curl("https://example.com/x", tmp_path / "x")

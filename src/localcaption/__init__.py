@@ -1,7 +1,8 @@
 """localcaption — fully-local YouTube → transcript pipeline.
 
-A thin orchestrator over yt-dlp, ffmpeg, and whisper.cpp. No API keys,
-nothing leaves your machine.
+A thin orchestrator over yt-dlp, ffmpeg, a speechbrain language identifier,
+and three NVIDIA/Qwen ASR checkpoints. All network traffic goes through a
+SOCKS5 proxy; no API keys, nothing leaves your machine.
 """
 
 from importlib.metadata import PackageNotFoundError, version

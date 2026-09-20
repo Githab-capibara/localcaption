@@ -28,4 +28,4 @@ class TranscriptionError(LocalCaptionError):
 
 
 class InstallError(LocalCaptionError):
-    """An automated install step (system dep, whisper.cpp clone/build) failed."""
+    """An automated install step (system package or model runtime) failed."""

@@ -1,6 +1,6 @@
 """Batch transcription: many URLs (or local files) → one summary table.
 
-Run sequentially. whisper.cpp already saturates the machine, so a pool
+Run sequentially. A single model already saturates the CPU, so a pool
 would only add contention.
 """
 
@@ -14,7 +14,6 @@ from urllib.parse import unquote, urlparse
 
 from . import _logging as log
 from .pipeline import transcribe_url
-from .whisper import DEFAULT_BACKEND, DEFAULT_MODEL, Backend
 
 # Watch, embed, shorts, live, youtu.be. Used so we can name the output dir
 # (and decide resume) without a yt-dlp metadata round-trip.
@@ -93,7 +92,7 @@ def read_url_list(path: Path) -> list[str]:
 
 
 def video_id_for(source: str) -> str:
-    """Stable id used for ``<out>/<id>/<id>.txt`` (resume + isolated output).
+    """Stable id used for ``<out>/<id>/<id>.md`` (resume + isolated output).
 
     YouTube URLs use the 11-character video id. Local files use a sanitized
     path so two ``episode.mp3`` files in different folders do not share a
@@ -116,18 +115,16 @@ def transcribe_urls(
     urls: list[str],
     *,
     out_dir: Path,
-    whisper_dir: Path | None = None,
-    model: str = DEFAULT_MODEL,
     language: str = "auto",
+    force_model: str | None = None,
     keep_intermediate: bool = False,
-    backend: str | Backend = DEFAULT_BACKEND,
 ) -> BatchResult:
     """Transcribe each source in *urls* sequentially.
 
     Per-URL output goes to ``out_dir/<videoId>/``. If
     ``<videoId>/<videoId>.txt`` already exists, that source is skipped.
     Failures are recorded and the rest of the list still runs.
-    *backend* is forwarded to :func:`transcribe_url`.
+    Routing options are forwarded to :func:`transcribe_url`.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -138,11 +135,9 @@ def transcribe_urls(
             _transcribe_one(
                 url,
                 out_dir=out_dir,
-                whisper_dir=whisper_dir,
-                model=model,
                 language=language,
+                force_model=force_model,
                 keep_intermediate=keep_intermediate,
-                backend=backend,
             )
         )
     return BatchResult(items=items, wall_clock_s=time.monotonic() - wall0)
@@ -152,17 +147,15 @@ def _transcribe_one(
     url: str,
     *,
     out_dir: Path,
-    whisper_dir: Path | None,
-    model: str,
     language: str,
+    force_model: str | None,
     keep_intermediate: bool,
-    backend: str | Backend,
 ) -> BatchItem:
     if "://" not in url:
         url = str(Path(url).expanduser())
     video_id = video_id_for(url)
     item_dir = out_dir / video_id
-    existing = item_dir / f"{video_id}.txt"
+    existing = item_dir / f"{video_id}.md"
     if existing.is_file():
         log.info(f"skip {video_id}: already exists ({existing})")
         return BatchItem(
@@ -178,12 +171,10 @@ def _transcribe_one(
         result = transcribe_url(
             url,
             out_dir=item_dir,
-            whisper_dir=whisper_dir,
-            model=model,
             language=language,
+            force_model=force_model,
             keep_intermediate=keep_intermediate,
             stem=video_id,
-            backend=backend,
         )
     except Exception as exc:
         elapsed = time.monotonic() - t0

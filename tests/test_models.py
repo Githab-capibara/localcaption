@@ -1,10 +1,4 @@
-"""Tests for ``localcaption.models`` — registry, listing, removal.
-
-Notes:
-- Network downloads are NOT exercised here (would be flaky and slow).
-  The download path is covered by an integration-style test that uses
-  a fake HTTP server in tests/test_models_download.py.
-"""
+"""Tests for ``localcaption.models`` — registry, listing, installation checks."""
 
 from __future__ import annotations
 
@@ -20,43 +14,43 @@ from localcaption.errors import LocalCaptionError
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_registry_contains_well_known_models():
-    names = {m.name for m in models.known_models()}
-    # Sanity: any of these missing means we accidentally broke the registry.
-    for required in ("tiny.en", "base.en", "small.en", "large-v3"):
-        assert required in names, f"missing well-known model: {required}"
+def test_registry_has_the_four_models():
+    keys = {m.key for m in models.known_models()}
+    assert keys == {
+        "langid-ecapa",
+        "qwen3-asr-0.6b",
+        "parakeet-tdt-0.6b-v3",
+        "nemotron-3.5-asr-streaming-0.6b",
+    }
 
 
-def test_registry_is_sorted_smallest_first():
-    sizes = [m.approx_size_mb for m in models.known_models()]
-    assert sizes == sorted(sizes), "known_models() must be sorted by size ascending"
+def test_registry_roles_and_envs():
+    by_role = {m.role: m for m in models.known_models()}
+    assert by_role["language-id"].env == "langid"
+    assert by_role["russian"].env == "qwen"
+    assert by_role["english"].env == "nvidia"
+    assert by_role["multilingual"].env == "nvidia"
 
 
 def test_get_model_returns_spec():
-    spec = models.get_model("base.en")
-    assert spec.name == "base.en"
-    assert spec.is_english_only
-    assert spec.url.endswith("ggml-base.en.bin")
-    assert "huggingface.co" in spec.url
+    spec = models.get_model("parakeet-tdt-0.6b-v3")
+    assert spec.hf_repo == "nvidia/parakeet-tdt-0.6b-v3"
+    assert spec.url_base.endswith("/nvidia/parakeet-tdt-0.6b-v3/resolve/main")
+    assert "model.safetensors" in spec.files
 
 
 def test_get_model_raises_on_unknown():
     with pytest.raises(LocalCaptionError) as exc_info:
-        models.get_model("xxx-not-a-model")
+        models.get_model("not-a-model")
     msg = str(exc_info.value)
-    # Must give the user actionable info, not just "no".
     assert "Unknown model" in msg
     assert "model list" in msg
 
 
-def test_english_only_flag():
-    assert models.get_model("base.en").is_english_only
-    assert not models.get_model("base").is_english_only
-
-
-def test_small_en_is_marked_install_default():
-    assert "default" in models.get_model("small.en").description.lower()
-    assert "default" not in models.get_model("base.en").description.lower()
+def test_by_role_lookup():
+    assert models.by_role("russian").key == "qwen3-asr-0.6b"
+    with pytest.raises(LocalCaptionError):
+        models.by_role("klingon")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -64,41 +58,50 @@ def test_small_en_is_marked_install_default():
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _make_fake_whisper_dir(root: Path, installed: list[str]) -> Path:
-    """Build a minimal whisper.cpp-shaped tree with the given fake models."""
-    whisper = root / "whisper.cpp"
-    (whisper / "models").mkdir(parents=True)
-    for name in installed:
-        # 1 byte per file is enough; tests don't care about real ggml format.
-        (whisper / "models" / f"ggml-{name}.bin").write_bytes(b"x")
-    return whisper
+def _install(root: Path, key: str) -> None:
+    spec = models.get_model(key)
+    for rel in spec.files:
+        target = root / key / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Large files need >1 MB to count as complete; small configs just >0.
+        target.write_bytes(b"\0" * (2_000_000 if rel == "model.safetensors" else 8))
 
 
-def test_installed_model_files_empty_when_dir_missing(tmp_path):
-    # Should NOT raise — listing just returns an empty mapping.
-    assert models.installed_model_files(tmp_path / "no-such-dir") == {}
+def test_missing_files_when_absent():
+    assert models.missing_files("langid-ecapa")
+    assert not models.is_installed("langid-ecapa")
 
 
-def test_installed_model_files_finds_existing(tmp_path):
-    whisper = _make_fake_whisper_dir(tmp_path, ["base.en", "small.en"])
-    found = models.installed_model_files(whisper)
-    assert set(found.keys()) == {"base.en", "small.en"}
-    for path in found.values():
-        assert path.is_file()
+def test_installed_when_all_files_present():
+    _install(models.paths.models_root(), "langid-ecapa")
+    assert models.is_installed("langid-ecapa")
 
 
-def test_list_status_marks_installed_correctly(tmp_path):
-    whisper = _make_fake_whisper_dir(tmp_path, ["base.en"])
-    rows = models.list_status(whisper)
-    by_name = {r.spec.name: r for r in rows}
-    assert by_name["base.en"].is_installed is True
-    assert by_name["small.en"].is_installed is False
+def test_tiny_safetensors_counts_as_missing():
+    root = models.paths.models_root()
+    spec = models.get_model("qwen3-asr-0.6b")
+    for rel in spec.files:
+        target = root / spec.key / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"\0" * 32)
+    assert "model.safetensors" in models.missing_files("qwen3-asr-0.6b")
 
 
-def test_orphaned_models_are_detected(tmp_path):
-    whisper = _make_fake_whisper_dir(tmp_path, ["base.en", "custom-finetune"])
-    orphans = models.orphaned_installed_models(whisper)
-    assert orphans == ["custom-finetune"]
+def test_missing_models_and_require():
+    only_langid = models.paths.models_root()
+    _install(only_langid, "langid-ecapa")
+    assert models.missing_models(["langid-ecapa"]) == []
+    missing = models.missing_models(["langid-ecapa", "qwen3-asr-0.6b"])
+    assert missing == ["qwen3-asr-0.6b"]
+    with pytest.raises(LocalCaptionError, match="qwen3-asr-0.6b"):
+        models.require(["qwen3-asr-0.6b"])
+
+
+def test_list_status_marks_installed():
+    _install(models.paths.models_root(), "langid-ecapa")
+    rows = {r.spec.key: r for r in models.list_status()}
+    assert rows["langid-ecapa"].installed is True
+    assert rows["qwen3-asr-0.6b"].installed is False
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -106,28 +109,14 @@ def test_orphaned_models_are_detected(tmp_path):
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_remove_model_deletes_file(tmp_path):
-    whisper = _make_fake_whisper_dir(tmp_path, ["base.en"])
-    target = whisper / "models" / "ggml-base.en.bin"
-    assert target.is_file()
-
-    removed = models.remove_model("base.en", whisper)
-    assert removed == target
-    assert not target.exists()
+def test_remove_model_deletes_directory():
+    _install(models.paths.models_root(), "langid-ecapa")
+    assert models.is_installed("langid-ecapa")
+    removed = models.remove_model("langid-ecapa")
+    assert removed == models.get_model("langid-ecapa").local_dir
+    assert not removed.exists()
 
 
-def test_remove_model_raises_when_missing(tmp_path):
-    whisper = _make_fake_whisper_dir(tmp_path, [])  # nothing installed
-    with pytest.raises(LocalCaptionError) as exc_info:
-        models.remove_model("base.en", whisper)
-    assert "not installed" in str(exc_info.value)
-
-
-# ──────────────────────────────────────────────────────────────────────
-# Path helpers
-# ──────────────────────────────────────────────────────────────────────
-
-
-def test_model_path_uses_whisper_dir_layout(tmp_path):
-    p = models.model_path(tmp_path, "small.en")
-    assert p == tmp_path / "models" / "ggml-small.en.bin"
+def test_remove_model_raises_when_missing():
+    with pytest.raises(LocalCaptionError, match="not installed"):
+        models.remove_model("langid-ecapa")

@@ -7,7 +7,7 @@
 # Usage:
 #   bash scripts/uninstall.sh                 # interactive
 #   bash scripts/uninstall.sh --yes           # no prompts (for scripts/CI)
-#   bash scripts/uninstall.sh --keep-models   # remove the binary, keep ggml models + whisper.cpp build
+#   bash scripts/uninstall.sh --keep-models   # remove the binary, keep model checkpoints + runtime envs
 #   bash scripts/uninstall.sh --dry-run       # show what WOULD be removed
 #
 # Exits with status 0 if the system ends up clean, 1 if anything failed.
@@ -116,13 +116,13 @@ echo
 echo "This will remove:"
 echo "  • the 'localcaption' command (via pipx uninstall)"
 if [ "$KEEP_MODELS" -eq 1 ]; then
-  echo "  • ${C_DIM}(keeping)${C_RST} whisper.cpp build + ggml models in $XDG_DATA"
+  echo "  • ${C_DIM}(keeping)${C_RST} model checkpoints + runtime envs in $XDG_DATA"
 else
-  echo "  • whisper.cpp build + ggml models in $XDG_DATA"
+  echo "  • model checkpoints + runtime envs in $XDG_DATA"
 fi
 echo "  • cache dir at $XDG_CACHE (if present)"
 echo
-echo "${C_DIM}Will NOT touch: pipx itself, ffmpeg/cmake/git, or any source repo you cloned.${C_RST}"
+echo "${C_DIM}Will NOT touch: pipx itself, ffmpeg/git/curl/uv, or any source repo you cloned.${C_RST}"
 echo
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -158,10 +158,10 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────
-# Step 2 — whisper.cpp + models
+# Step 2 — models + runtimes
 # ──────────────────────────────────────────────────────────────────────
 
-step "Removing whisper.cpp + models"
+step "Removing models + runtime envs"
 
 if [ "$KEEP_MODELS" -eq 1 ]; then
   warn "skipping (--keep-models): $XDG_DATA preserved"

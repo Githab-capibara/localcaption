@@ -96,13 +96,13 @@ def write_chapters_json(path: Path, chapters: list[Chapter]) -> Path:
 
 
 def load_segments(transcript_path: Path) -> list[Segment]:
-    """Load timed segments from sibling whisper ``.json``, else ``.srt``."""
+    """Load timed segments from the sibling transcript ``.json``, else ``.srt``."""
     base = _without_known_suffix(transcript_path)
     json_path = base.parent / f"{base.name}.json"
     srt_path = base.parent / f"{base.name}.srt"
     try:
         if json_path.is_file():
-            segs = _segments_from_whisper_json(json_path)
+            segs = _segments_from_json(json_path)
             if segs:
                 return segs
         if srt_path.is_file():
@@ -161,7 +161,7 @@ def _chapter_index(chapters: list[Chapter], t: float) -> int:
     return idx
 
 
-def _segments_from_whisper_json(path: Path) -> list[Segment]:
+def _segments_from_json(path: Path) -> list[Segment]:
     try:
         data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except json.JSONDecodeError:

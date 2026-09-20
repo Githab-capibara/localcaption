@@ -1,6 +1,6 @@
 """Optional post-transcript summary via a local Ollama instance.
 
-After whisper.cpp writes ``<id>.txt``, this module POSTs the transcript to
+After the ASR stage writes ``<id>.txt``, this module POSTs the transcript to
 ``http://localhost:11434/api/generate`` and writes ``<id>.summary.md`` next
 to it. Failures (Ollama down, bad model, timeout) are warnings, not errors:
 the transcript pipeline still succeeds.

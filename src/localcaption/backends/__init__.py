@@ -1,1 +1,0 @@
-"""Pluggable transcription backends."""

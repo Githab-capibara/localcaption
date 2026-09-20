@@ -25,7 +25,8 @@ In-scope:
 
 Out of scope:
 
-- Vulnerabilities in upstream `yt-dlp`, `ffmpeg`, or `whisper.cpp` — please
-  report those to the respective projects.
+- Vulnerabilities in upstream `yt-dlp`, `ffmpeg`, or the ASR model stacks
+  (PyTorch, transformers, speechbrain) — please report those to the
+  respective projects.
 - Issues that require local code execution as the same user already running
   `localcaption` (we treat the local user as trusted).

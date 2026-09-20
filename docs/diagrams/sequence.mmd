@@ -13,47 +13,55 @@
 sequenceDiagram
     autonumber
     actor User
-    participant CLI       as cli.py
-    participant Pipe      as pipeline.py
-    participant Download  as download.py
-    participant Audio     as audio.py
-    participant Whisper   as whisper.py
-    participant YT        as yt-dlp
-    participant FF        as ffmpeg
-    participant WCPP      as whisper.cpp
+    participant CLI      as cli.py
+    participant Pipe     as pipeline.py
+    participant Download as download.py
+    participant Audio    as audio.py
+    participant LangID   as langid.py
+    participant ASR      as asr.py
+    participant YT       as yt-dlp
+    participant FF       as ffmpeg
+    participant Runner   as runners/*.py (venv)
 
-    User->>CLI: localcaption <url> -m base.en
-    CLI->>Pipe: transcribe_url(url, out_dir, whisper_dir, model)
+    User->>CLI: localcaption <url> [--language auto]
+    CLI->>Pipe: transcribe_url(url, out_dir, language)
 
     rect rgb(220, 252, 231)
     note right of Pipe: Stage 1 · Download
     Pipe->>Download: download_audio(url, work_dir)
     Download->>YT: YoutubeDL(opts).extract_info(url, download=True)
-    note over YT: player_client = [android, ios, web]<br/>retries = 5
-    YT-->>Download: info dict (id, ext, ...)
-    Download->>Download: prepare_filename(info)
+    note over YT: all traffic via the SOCKS5 proxy
+    YT-->>Download: info dict (id, title, chapters, ...)
     Download-->>Pipe: Path(audio_file)
     end
 
     rect rgb(219, 234, 254)
     note right of Pipe: Stage 2 · Re-encode
-    Pipe->>Audio: to_whisper_wav(audio, wav_path)
+    Pipe->>Audio: to_wav(audio, wav_path)
     Audio->>FF: subprocess(ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le)
     FF-->>Audio: 16 kHz mono WAV
     Audio-->>Pipe: Path(wav_file)
     end
 
-    rect rgb(252, 231, 243)
-    note right of Pipe: Stage 3 · Transcribe
-    Pipe->>Whisper: transcribe(wav, model, out_base, backend)
-    note over Whisper,WCPP: backend: whisper-cpp (default) or faster-whisper
-    Whisper->>Whisper: get_backend(name)
-    Whisper->>WCPP: whisper-cli or faster_whisper.WhisperModel
-    note over WCPP: Metal / CUDA / CPU depending on backend
-    WCPP-->>Whisper: writes .txt / .srt / .vtt / .json
-    Whisper-->>Pipe: TranscriptionResult
+    rect rgb(254, 249, 195)
+    note right of Pipe: Stage 3 · Language ID
+    Pipe->>LangID: detect_language(wav)  [when language=auto]
+    LangID->>Runner: run_runner(langid-ecapa, window=6s, max-windows=16)
+    Runner-->>LangID: {name, score, scores}
+    LangID-->>Pipe: LangIdResult (confident?)
     end
 
+    rect rgb(252, 231, 243)
+    note right of Pipe: Stage 4 · Routed ASR
+    Pipe->>ASR: transcribe(wav, out_base, model)
+    note over ASR: ru → Qwen3-ASR<br/>en → Parakeet TDT<br/>other / unclear → Nemotron
+    ASR->>Runner: run_runner(model, window=45s)
+    Runner-->>ASR: {text, language, segments[]}
+    ASR->>ASR: write .txt / .srt / .vtt / .json
+    ASR-->>Pipe: TranscriptionResult
+    end
+
+    Pipe->>Pipe: chapters + search index (+ optional Ollama summary)
     Pipe->>Pipe: shutil.rmtree(work_dir)  [unless --keep-audio]
     Pipe-->>CLI: PipelineResult
     CLI-->>User: print transcript paths + body

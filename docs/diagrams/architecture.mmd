@@ -23,25 +23,34 @@ flowchart TB
 
         subgraph STAGES["pipeline stages · single responsibility"]
             direction LR
-            DL["download.py<br/><i>yt-dlp Python API</i>"]:::stage
-            AU["audio.py<br/><i>ffmpeg subprocess</i>"]:::stage
-            WH["whisper.py + backends/<br/><i>whisper.cpp · faster-whisper</i>"]:::stage
+            DL["download.py<br/><i>yt-dlp · proxy</i>"]:::stage
+            AU["audio.py<br/><i>ffmpeg → 16 kHz WAV</i>"]:::stage
+            LID["langid.py<br/><i>language ID</i>"]:::stage
+            ASR["asr.py<br/><i>routing + artefacts</i>"]:::stage
+        end
+
+        subgraph RUNNERS["runners/ · executed inside each venv"]
+            direction LR
+            RL["langid.py<br/><i>speechbrain ECAPA</i>"]:::runner
+            RQ["qwen.py<br/><i>Qwen3-ASR</i>"]:::runner
+            RN["nvidia.py<br/><i>Parakeet · Nemotron</i>"]:::runner
         end
 
         subgraph SUPPORT["support modules · used by all stages"]
             direction LR
-            ERR["errors.py<br/>LocalCaptionError ▸ DependencyError ▸<br/>DownloadError ▸ AudioConversionError ▸<br/>TranscriptionError"]:::support
-            LOG["_logging.py<br/><i>shared stdout logger</i>"]:::support
+            MOD["models.py · runtime.py<br/><i>registry · venvs</i>"]:::support
+            NET["network.py · paths.py<br/><i>proxy · layout</i>"]:::support
+            MISC["languages.py · formats.py<br/>chapters.py · index.py<br/>summary.py · errors.py"]:::support
         end
     end
 
-    subgraph EXT["external dependencies · installed by scripts/setup.sh"]
+    subgraph EXT["external dependencies · built / fetched on install"]
         direction LR
         YTDLP(["📦 yt-dlp<br/><i>pip dependency</i>"]):::extdep
         FFMPEG(["⚙️ ffmpeg<br/><i>system binary</i>"]):::extdep
-        WCPP(["⚙️ whisper.cpp<br/><i>built locally · default</i>"]):::extdep
-        FW(["📦 faster-whisper<br/><i>optional extra</i>"]):::extdep
-        MODEL[/"🧠 ggml model<br/><i>./whisper.cpp/models/</i>"/]:::model
+        PROXY(["🔒 SOCKS5 proxy<br/><i>all network traffic</i>"]):::extdep
+        CKPT[/"🧠 4 checkpoints<br/><i>models/</i>"/]:::model
+        VENVS[/"🐍 3 virtualenvs<br/><i>runtime/</i>"/]:::model
     end
 
     USER ==>|"localcaption <url>"| CLI
@@ -50,18 +59,24 @@ flowchart TB
     CLI ==>|"transcribe_url(...)"| PIPE
     PIPE ==> DL
     PIPE ==> AU
-    PIPE ==> WH
+    PIPE ==> LID
+    PIPE ==> ASR
+
+    LID --> RL
+    ASR --> RQ
+    ASR --> RN
 
     DL  --> YTDLP
     AU  --> FFMPEG
-    WH  --> WCPP
-    WH  --> FW
-    WH  --> MODEL
+    DL  -.-> PROXY
+    RUNNERS -.-> VENVS
+    RUNNERS --> CKPT
 
     classDef user    fill:#FEF3C7,stroke:#D97706,color:#78350F,font-weight:bold,stroke-width:2px;
     classDef entry   fill:#FCE7F3,stroke:#DB2777,color:#831843,font-weight:bold,stroke-width:2px;
     classDef core    fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,font-weight:bold,stroke-width:2px;
     classDef stage   fill:#DCFCE7,stroke:#16A34A,color:#14532D,font-weight:bold,stroke-width:1.5px;
+    classDef runner  fill:#CCFBF1,stroke:#0D9488,color:#134E4A,font-weight:bold,stroke-width:1.5px;
     classDef support fill:#F3E8FF,stroke:#9333EA,color:#581C87,stroke-width:1.5px;
     classDef extdep  fill:#E2E8F0,stroke:#475569,color:#0F172A,font-style:italic,stroke-width:1.5px;
     classDef model   fill:#FEFCE8,stroke:#A16207,color:#713F12,font-style:italic,stroke-width:1.5px;

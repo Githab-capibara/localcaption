@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Replaced the whisper.cpp / faster-whisper backends with a routed,
+  multi-model ASR pipeline.** A speechbrain ECAPA-TDNN language-ID stage now
+  picks the model: Russian → Qwen3-ASR 0.6B, English → Parakeet TDT 0.6B v3,
+  anything else or low-confidence → Nemotron 3.5 ASR Streaming 0.6B.
+- Each model family runs in its own isolated virtualenv (`runtime/`) because
+  their `transformers` requirements conflict; `asr.py` drives them as
+  subprocess runners that emit a JSON segment manifest.
+- **Proxy-first networking.** All outbound traffic (yt-dlp, model downloads,
+  Hugging Face lookups from child processes) goes through a SOCKS5 proxy,
+  default `socks5h://127.0.0.1:9050` and overridable with
+  `$LOCALCAPTION_PROXY`. Loopback is always excluded.
+- Model management now covers four checkpoints (`langid-ecapa`,
+  `qwen3-asr-0.6b`, `parakeet-tdt-0.6b-v3`, `nemotron-3.5-asr-streaming-0.6b`),
+  downloaded resumably via `curl`. Removed the `faster` extra and the
+  `whisper.py` / `backends/` modules.
+- `--backend` and `--whisper-dir` are gone; use `--model KEY` to force a
+  specific ASR model (otherwise routing applies) and `--language` to skip
+  detection.
+- `doctor` now checks tools, proxy reachability, the per-model runtimes, and
+  the four checkpoints.
+
 ## [0.4.1] - 2026-09-05
 
 ### Changed

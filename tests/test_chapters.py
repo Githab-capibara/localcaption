@@ -87,7 +87,7 @@ def test_chaptered_markdown_slices_by_start() -> None:
     assert "Now the demo begins" in md.split("## 08:14 Demo")[1]
 
 
-def test_load_segments_from_whisper_json(tmp_path: Path) -> None:
+def test_load_segments_from_asr_json(tmp_path: Path) -> None:
     json_path = tmp_path / "vid.json"
     json_path.write_text(
         json.dumps(

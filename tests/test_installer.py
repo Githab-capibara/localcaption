@@ -1,7 +1,7 @@
 """Tests for `localcaption.installer`.
 
-We can't actually `git clone` or `cmake --build` in unit tests, so every
-external command is mocked at the `subprocess.run` boundary. The goal is
+We can't actually install packages or run setup_runtime.sh in unit tests, so
+every external command is mocked at the `subprocess.run` boundary. The goal is
 to exercise the *orchestration* logic — argument shape, ordering, skip
 conditions, error translation — not the underlying tools.
 """
@@ -110,7 +110,6 @@ def test_install_system_dep_no_package_manager(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_install_system_dep_uses_brew_on_macos(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ffmpeg missing, brew present.
     def which(name: str) -> str | None:
         return "/opt/homebrew/bin/brew" if name == "brew" else None
 
@@ -128,99 +127,39 @@ def test_install_system_dep_uses_apt_on_linux(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(installer.shutil, "which", which)
     calls: list[list[str]] = []
     monkeypatch.setattr(installer, "_run", lambda cmd, **_kw: calls.append(cmd))
-    installer.install_system_dep("cmake")
+    installer.install_system_dep("curl")
     assert calls == [
         ["sudo", "apt-get", "update", "-y"],
-        ["sudo", "apt-get", "install", "-y", "cmake"],
+        ["sudo", "apt-get", "install", "-y", "curl"],
     ]
 
 
-# --- ensure_whisper_cpp ---------------------------------------------------
+# --- ensure_runtime -------------------------------------------------------
 
 
-def _make_built_checkout(root: Path) -> Path:
-    """Lay out a fake whisper.cpp tree with an executable binary."""
-    binary = root / "build" / "bin" / "whisper-cli"
-    binary.parent.mkdir(parents=True)
-    binary.write_text("#!/bin/sh\nexit 0\n")
-    binary.chmod(0o755)
-    (root / "models").mkdir()
-    return binary
+def test_ensure_runtime_runs_setup_script(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    script = tmp_path / "scripts" / "setup_runtime.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\n")
+
+    monkeypatch.setattr(installer.paths, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(installer.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(installer, "_run", lambda cmd, **kw: calls.append(cmd))
+    installer.ensure_runtime()
+    assert calls == [["bash", str(script)]]
 
 
-def test_ensure_whisper_cpp_short_circuits_when_built(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    whisper_dir = tmp_path / "whisper.cpp"
-    whisper_dir.mkdir()
-    expected = _make_built_checkout(whisper_dir)
-
-    # No subprocess calls should happen.
-    def boom(*_a: Any, **_kw: Any) -> None:
-        raise AssertionError("subprocess.run should not be invoked")
-
-    monkeypatch.setattr(installer.subprocess, "run", boom)
-    binary = installer.ensure_whisper_cpp(whisper_dir)
-    assert binary == expected
-
-
-def test_ensure_whisper_cpp_clones_and_builds(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    whisper_dir = tmp_path / "whisper.cpp"  # does not yet exist
-    calls: list[tuple[list[str], Path | None]] = []
-
-    def fake_run(cmd: list[str], *, label: str, cwd: Path | None = None) -> None:
-        calls.append((cmd, cwd))
-        # Simulate the side-effects of `git clone` and `cmake --build`.
-        if cmd[:2] == ["git", "clone"]:
-            whisper_dir.mkdir(parents=True)
-            (whisper_dir / "CMakeLists.txt").write_text("project(x)\n")
-        elif cmd[:2] == ["cmake", "--build"]:
-            _make_built_checkout(whisper_dir)
-
-    monkeypatch.setattr(installer, "_run", fake_run)
-    monkeypatch.setattr(installer.shutil, "which",
-                        lambda name: f"/usr/bin/{name}")  # git + cmake present
-
-    binary = installer.ensure_whisper_cpp(whisper_dir)
-
-    # Confirm sequencing: clone → cmake configure → cmake build.
-    assert [c[0][0] for c in calls] == ["git", "cmake", "cmake"]
-    assert calls[0][0][:2] == ["git", "clone"]
-    assert calls[1][0][:2] == ["cmake", "-B"]
-    assert calls[2][0][:2] == ["cmake", "--build"]
-    # cmake calls must run inside the checkout.
-    assert calls[1][1] == whisper_dir
-    assert calls[2][1] == whisper_dir
-    assert binary.is_file()
-
-
-def test_ensure_whisper_cpp_requires_git_when_cloning(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    whisper_dir = tmp_path / "whisper.cpp"  # missing
+def test_ensure_runtime_requires_uv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "setup_runtime.sh").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(installer.paths, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(installer.shutil, "which", lambda _name: None)
-    with pytest.raises(InstallError, match="git is required"):
-        installer.ensure_whisper_cpp(whisper_dir)
+    with pytest.raises(InstallError, match="uv"):
+        installer.ensure_runtime()
 
 
-def test_ensure_whisper_cpp_requires_cmake_when_building(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    whisper_dir = tmp_path / "whisper.cpp"
-    whisper_dir.mkdir()
-    (whisper_dir / "CMakeLists.txt").write_text("project(x)\n")
-    # No binary, no cmake → should fail with a hint.
-    monkeypatch.setattr(installer.shutil, "which", lambda _name: None)
-    with pytest.raises(InstallError, match="cmake is required"):
-        installer.ensure_whisper_cpp(whisper_dir)
-
-
-def test_ensure_whisper_cpp_rejects_non_directory(
-    tmp_path: Path,
-) -> None:
-    not_a_dir = tmp_path / "whisper.cpp"
-    not_a_dir.write_text("oops, this is a file")
-    with pytest.raises(InstallError, match="not a directory"):
-        installer.ensure_whisper_cpp(not_a_dir)
+def test_ensure_runtime_missing_script(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(installer.paths, "repo_root", lambda: tmp_path)
+    with pytest.raises(InstallError, match="setup script not found"):
+        installer.ensure_runtime()
