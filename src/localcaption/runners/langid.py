@@ -44,19 +44,46 @@ def main() -> int:
         "speechbrain.utils.logger",
     ):
         logging.getLogger(name).setLevel(logging.ERROR)
+    from _offload import offload_kwargs
     from speechbrain.inference import EncoderClassifier
 
     savedir = Path(args.model) / ".speechbrain"
-    print(f"loading language-ID model: {args.model}")
+    plan = offload_kwargs(args.model)
+    if "max_memory" in plan:
+        device = "cuda:0"
+        gpu_mib = plan["max_memory"][0] // (1024 * 1024)
+    elif plan.get("device_map") == "cuda:0":
+        device = "cuda:0"
+        gpu_mib = 0
+    else:
+        device = "cpu"
+        gpu_mib = 0
+    print(f"loading language-ID model: {args.model} (device {device}, GPU slice {gpu_mib} MiB)")
     # The checkpoint's hyperparams.yaml references its files through the
     # ``pretrained_path`` ref (a Hugging Face repo id). Point that ref at our
     # local directory so nothing is fetched at load time.
-    classifier = EncoderClassifier.from_hparams(
-        source=args.model,
-        savedir=str(savedir),
-        overrides={"pretrained_path": args.model},
-        run_opts={"device": "cuda:0"},
-    )
+    try:
+        classifier = EncoderClassifier.from_hparams(
+            source=args.model,
+            savedir=str(savedir),
+            overrides={"pretrained_path": args.model},
+            run_opts={"device": device},
+        )
+    except Exception:
+        if device == "cpu":
+            raise
+        print(
+            "language-ID model failed on GPU; retrying on CPU "
+            "(slower, but the run still finishes)",
+            flush=True,
+        )
+        device = "cpu"
+        classifier = EncoderClassifier.from_hparams(
+            source=args.model,
+            savedir=str(savedir),
+            overrides={"pretrained_path": args.model},
+            run_opts={"device": device},
+        )
 
     samples = read_wav16k(args.wav)
     print(f"audio: {len(samples) / 16000:.1f}s, model dir: {args.model}")

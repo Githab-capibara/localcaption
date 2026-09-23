@@ -26,6 +26,7 @@ from .batch import read_url_list, transcribe_urls
 from .errors import LocalCaptionError
 from .network import get_proxy
 from .pipeline import normalize_language, transcribe_url
+from .playlist import PlaylistError, expand_playlist, has_playlist_query
 from .summary import DEFAULT_MODEL as DEFAULT_SUMMARY_MODEL
 
 SUBCOMMANDS = frozenset({"doctor", "transcribe", "search", "model"})
@@ -76,6 +77,36 @@ def _build_transcribe_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-print", action="store_true",
         help="do not echo the transcript to stdout when finished",
+    )
+    parser.add_argument(
+        "--cookies", type=str, default=None, metavar="BROWSER_OR_FILE",
+        help="yt-dlp cookie source for YouTube: a browser name (firefox/chrome/"
+             "edge/brave/vivaldi) or a Netscape cookie file. Passed to yt-dlp as "
+             "--cookies-from-browser / --cookies. Auto-detected if omitted "
+             "(LOCALCAPTION_YTDLP_COOKIES, then ~/.localcaption/yt-dlp-cookies.txt, "
+             "then a logged-in browser). Useful when YouTube raises a "
+             "'Sign in to confirm you're not a bot' block on a Tor exit IP.",
+    )
+    parser.add_argument(
+        "--no-proxy", action="store_true",
+        help="bypass LOCALCAPTION_PROXY for this run (direct connection). "
+             "Useful when the Tor exit is flagged but your direct line is clean.",
+    )
+    parser.add_argument(
+        "--rotate-tor", action="store_true",
+        help="request a fresh Tor exit circuit before downloading. "
+             "Automatically done when a bot-check block is detected; use this "
+             "to force it. Requires the Tor control port (default 9051).",
+    )
+    parser.add_argument(
+        "--no-playlist", action="store_false", dest="playlist", default=True,
+        help="only transcribe the first video in a playlist URL; ignore the "
+             "rest. By default a URL with &list= transcribes every video in "
+             "the list (sequentially, with skip-if-already-done).",
+    )
+    parser.add_argument(
+        "--playlist-limit", type=int, default=None, metavar="N",
+        help="only transcribe the first N videos of a playlist URL.",
     )
     parser.add_argument(
         "--auto-download", action="store_true",
@@ -184,6 +215,16 @@ def _cmd_transcribe(argv: list[str]) -> int:
 
 
 def _run_one(args: argparse.Namespace) -> int:
+    # --no-proxy runs the download on a direct (flagged-exit bypassing) line.
+    proxy = "" if args.no_proxy else None
+    cookies = args.cookies
+
+    # A URL with &list= is a playlist. By default we transcribe every video
+    # in the list (sequentially, skip-if-already-done). --no-playlist drops
+    # back to the old single-video behaviour.
+    if args.playlist and has_playlist_query(args.url):
+        return _run_playlist(args, urls=[args.url], proxy=proxy, cookies=cookies)
+
     try:
         result = transcribe_url(
             args.url,
@@ -194,6 +235,9 @@ def _run_one(args: argparse.Namespace) -> int:
             summary=args.summary,
             summary_model=args.summary_model,
             summary_prompt=args.summary_prompt,
+            cookies=cookies,
+            proxy=proxy,
+            force_rotate=args.rotate_tor,
         )
     except LocalCaptionError as exc:
         log.error(str(exc))
@@ -214,8 +258,54 @@ def _run_one(args: argparse.Namespace) -> int:
         if txt.exists():
             print("\n" + "─" * 30 + " transcript " + "─" * 30)
             print(txt.read_text(encoding="utf-8", errors="replace"))
-
     return 0
+
+
+def _run_playlist(args: argparse.Namespace, *, urls: list[str], proxy: str | None, cookies: str | None) -> int:
+    """Expand one-or-more playlist URLs and transcribe every entry.
+
+    Runs the same sequential, skip-if-already-done machinery as --batch so a
+    re-run after an interruption resumes rather than restarting.
+    """
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    expanded: list[str] = []
+    for src in urls:
+        try:
+            info = expand_playlist(src, proxy=proxy, cookies=cookies)
+        except PlaylistError as exc:
+            log.error(str(exc))
+            return 1
+        expanded.extend(info.urls)
+
+    total = len(expanded)
+    if args.playlist_limit is not None and 0 < args.playlist_limit < total:
+        log.info(f"playlist: transcribing first {args.playlist_limit} of {total} videos (--playlist-limit)")
+        expanded = expanded[: args.playlist_limit]
+
+    log.info(
+        f"playlist: {len(expanded)} video(s) to transcribe "
+        f"-> {out_dir}/<id>/<id>.md  (skip-if-already-done)"
+    )
+
+    try:
+        result = transcribe_urls(
+            expanded,
+            out_dir=out_dir,
+            language=args.language,
+            force_model=args.model,
+            keep_intermediate=args.keep_audio,
+            cookies=cookies,
+            proxy=proxy,
+            force_rotate=args.rotate_tor,
+        )
+    except LocalCaptionError as exc:
+        log.error(str(exc))
+        return 1
+
+    print(result.summary())
+    return result.exit_code()
 
 
 def _run_batch(args: argparse.Namespace) -> int:
@@ -308,6 +398,36 @@ def _run_doctor_diagnostics() -> tuple[bool, list[str], dict[str, bool]]:
             f"The SOCKS5 proxy at {proxy} is not reachable.\n"
             "Start your proxy (e.g. Tor) or point localcaption elsewhere:\n"
             "    export LOCALCAPTION_PROXY=socks5h://host:port"
+        )
+
+    # YouTube bot-check (Tor exit IP) mitigations.
+    print("\nYouTube / Tor bot-check mitigations:")
+    from .network import get_ytdlp_cookies, rotate_tor_circuit
+
+    cookies = get_ytdlp_cookies()
+    all_ok &= _check(
+        "cookies",
+        cookies is not None,
+        cookies or "none — see LOCALCAPTION_YTDLP_COOKIES / --cookies",
+    )
+    can_rotate = rotate_tor_circuit()
+    all_ok &= _check(
+        "tor-rotate",
+        can_rotate,
+        "ok" if can_rotate
+        else "unavailable — SIGNAL NEWNYM not reachable (Tor control port 9051?)",
+    )
+    if not can_rotate and cookies is None:
+        fix_hints.append(
+            "YouTube 'Sign in to confirm you're not a bot' can block Tor exit "
+            "IPs. Mitigations:\n"
+            "  1. Enable Tor circuit rotation (Tor control port on 9051),\n"
+            "  2. Export a Netscape cookie jar:\n"
+            "       export LOCALCAPTION_YTDLP_COOKIES=/path/to/cookies.txt\n"
+            "     or use a logged-in browser:\n"
+            "       export LOCALCAPTION_YTDLP_COOKIE_BROWSERS=firefox,chrome\n"
+            "  3. Bypass Tor entirely for one run:\n"
+            "       localcaption <url> --no-proxy"
         )
 
     print("\nModel runtimes:")

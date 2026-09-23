@@ -124,7 +124,7 @@ class TestTranscribeUrlLocalFile:
         video.write_text("fake video")
         download_called = False
 
-        def fake_download(url, work_dir):
+        def fake_download(url, work_dir, **_kwargs):
             nonlocal download_called
             download_called = True
             return work_dir / "downloaded.mp4"
@@ -196,7 +196,7 @@ class TestTranscribeUrlLocalFile:
 
 class TestTranscribeUrlRemote:
     def test_url_calls_download(self, monkeypatch, tmp_path: Path) -> None:
-        def fake_download(url, work_dir):
+        def fake_download(url, work_dir, **_kwargs):
             downloaded = work_dir / "yt_video.m4a"
             downloaded.write_text("fake audio")
             return DownloadResult(path=downloaded, info={"id": "yt_video", "title": "YT"})
@@ -229,7 +229,7 @@ INFO_WITH_CHAPTERS = {
 
 
 def _remote_stubs(monkeypatch, info=INFO_WITH_CHAPTERS):
-    def fake_download(url, work_dir):
+    def fake_download(url, work_dir, **_kwargs):
         downloaded = work_dir / f"{info.get('id', 'plain')}.m4a"
         downloaded.write_text("fake audio")
         return DownloadResult(path=downloaded, info=info)

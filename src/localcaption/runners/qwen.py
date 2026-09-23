@@ -3,6 +3,12 @@
 
 Loads a local Qwen3-ASR checkpoint and transcribes a 16 kHz mono WAV in
 fixed windows, emitting timed segments.
+
+Device policy: the model is loaded with a *partial* GPU/CPU device map —
+whatever slice of the weights fits in the free VRAM stays on the GPU and
+the overflow is pinned in host RAM, streamed to the GPU block-by-block.
+When the GPU has nothing free the whole model runs on CPU. If the split
+plan still OOMs at allocation time we fall back to a full CPU load.
 """
 
 from __future__ import annotations
@@ -13,7 +19,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _wavio import SAMPLE_RATE, iter_windows, read_wav16k  # noqa: E402
+from _wavio import (  # noqa: E402
+    SAMPLE_RATE,
+    iter_windows,
+    read_wav16k,
+)
 
 # Qwen3-ASR accepts full language names; None lets it auto-detect.
 QWEN_LANGUAGE_NAMES = {
@@ -32,6 +42,42 @@ QWEN_LANGUAGE_NAMES = {
 }
 
 
+def _load_model(model_dir: str, torch):
+    from _offload import offload_kwargs
+    from qwen_asr import Qwen3ASRModel
+
+    kwargs = dict(
+        pretrained_model_name_or_path=model_dir,
+        dtype=torch.float32,
+        max_inference_batch_size=1,
+        max_new_tokens=1024,
+    )
+    plan = offload_kwargs(model_dir)
+    if "max_memory" in plan:
+        print(
+            f"loading Qwen3-ASR: partial GPU/CPU split, "
+            f"GPU slice {plan['max_memory'][0] // (1024 * 1024)} MiB",
+            flush=True,
+        )
+    else:
+        print(f"loading Qwen3-ASR on {plan.get('device_map')}", flush=True)
+
+    try:
+        model = Qwen3ASRModel.from_pretrained(**plan, **kwargs)
+    except torch.OutOfMemoryError:
+        # The split plan still OOMed on allocation (VRAM shrank between the
+        # measurement and the load). Fall back to a full CPU load.
+        print(
+            "CUDA out of memory splitting Qwen3-ASR; re-loading fully on CPU "
+            "(slower, but the run still finishes)",
+            file=sys.stderr,
+            flush=True,
+        )
+        model = Qwen3ASRModel.from_pretrained(device_map="cpu", **kwargs)
+
+    return model
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
@@ -46,18 +92,10 @@ def main() -> int:
     import logging
 
     import torch
-    from qwen_asr import Qwen3ASRModel
 
     logging.getLogger("transformers").setLevel(logging.ERROR)
 
-    print(f"loading Qwen3-ASR model: {args.model}")
-    model = Qwen3ASRModel.from_pretrained(
-        args.model,
-        dtype=torch.float32,
-        device_map={"": "cuda:0"},
-        max_inference_batch_size=1,
-        max_new_tokens=1024,
-    )
+    model = _load_model(args.model, torch)
     forced = QWEN_LANGUAGE_NAMES.get(args.language.lower())
     print(f"language hint: {forced or 'auto'}")
 

@@ -118,6 +118,9 @@ def transcribe_urls(
     language: str = "auto",
     force_model: str | None = None,
     keep_intermediate: bool = False,
+    cookies: str | None = None,
+    proxy: str | None = None,
+    force_rotate: bool = False,
 ) -> BatchResult:
     """Transcribe each source in *urls* sequentially.
 
@@ -138,6 +141,9 @@ def transcribe_urls(
                 language=language,
                 force_model=force_model,
                 keep_intermediate=keep_intermediate,
+                cookies=cookies,
+                proxy=proxy,
+                force_rotate=force_rotate,
             )
         )
     return BatchResult(items=items, wall_clock_s=time.monotonic() - wall0)
@@ -150,6 +156,9 @@ def _transcribe_one(
     language: str,
     force_model: str | None,
     keep_intermediate: bool,
+    cookies: str | None = None,
+    proxy: str | None = None,
+    force_rotate: bool = False,
 ) -> BatchItem:
     if "://" not in url:
         url = str(Path(url).expanduser())
@@ -175,6 +184,9 @@ def _transcribe_one(
             force_model=force_model,
             keep_intermediate=keep_intermediate,
             stem=video_id,
+            cookies=cookies,
+            proxy=proxy,
+            force_rotate=force_rotate,
         )
     except Exception as exc:
         elapsed = time.monotonic() - t0

@@ -59,16 +59,25 @@ def test_legacy_modules_are_gone() -> None:
 
 
 def test_asr_runners_target_cuda() -> None:
-    """Every ASR runner must offload inference to the GPU, never regress to CPU."""
+    """Every ASR runner must use the GPU when VRAM allows, and offload to CPU
+    when it doesn't (never hard-fail on a small or busy GPU).
+
+    The decision is centralised in ``_offload.offload_kwargs``; each runner
+    just calls it and merges the returned ``device_map``/``max_memory`` into
+    its ``from_pretrained``/``pipeline`` call. The test therefore checks that
+    every runner imports and calls the shared helper, and that the helper
+    itself emits both a GPU (``cuda:0``) and a CPU placement option.
+    """
     from pathlib import Path
 
     runners_dir = Path(__file__).resolve().parents[1] / "src" / "localcaption" / "runners"
-    checks = {
-        "nvidia.py": ("device=\"cuda:0\"", ".to(\"cuda\")"),
-        "qwen.py": ("device_map={\"\": \"cuda:0\"}",),
-        "langid.py": ("run_opts={\"device\": \"cuda:0\"}",),
-    }
-    for name, needles in checks.items():
+    # every runner must reach for the shared offload helper
+    for name in ("nvidia.py", "qwen.py", "langid.py"):
         src = (runners_dir / name).read_text(encoding="utf-8")
-        for needle in needles:
-            assert needle in src, f"{name} missing GPU target: {needle}"
+        assert "offload_kwargs" in src, f"{name} must import offload_kwargs from _offload"
+        assert "device_map" in src, f"{name} must apply a device_map"
+
+    # the helper must be able to place on the GPU *and* on CPU
+    off = (runners_dir / "_offload.py").read_text(encoding="utf-8")
+    assert "cuda:0" in off, "_offload must be able to target the GPU"
+    assert '"cpu"' in off, "_offload must be able to target CPU"

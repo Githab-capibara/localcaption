@@ -123,6 +123,9 @@ def transcribe_url(
     summary_model: str = DEFAULT_SUMMARY_MODEL,
     summary_prompt: Path | None = None,
     output_format: str = "md",
+    cookies: str | None = None,
+    proxy: str | None = None,
+    force_rotate: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline on *url* and return the produced artefacts.
 
@@ -170,7 +173,9 @@ def transcribe_url(
                 "webpage_url": str(audio_path),
             }
         else:
-            downloaded = download_audio(url, work_dir)
+            downloaded = download_audio(
+                url, work_dir, cookies=cookies, proxy=proxy, force_rotate=force_rotate
+            )
             audio_path = downloaded.path
             info = downloaded.info or {}
 
