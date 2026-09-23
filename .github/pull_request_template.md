@@ -15,6 +15,6 @@
 - [ ] Tests added or updated.
 - [ ] `pytest` passes locally.
 - [ ] `ruff check src tests` passes.
-- [ ] `CHANGELOG.md` updated under `## [Unreleased]` (for user-visible changes).
+- [ ] Changelog (`docs/governance/04-changelog.md`) updated under `## [Unreleased]` (for user-visible changes).
 - [ ] Public APIs have docstrings.
 - [ ] No new external dependencies (or, if added, justified above).

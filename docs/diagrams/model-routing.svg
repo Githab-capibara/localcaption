@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" font-family="Inter, system-ui, -apple-system, sans-serif">
+  <title>Model routing split</title>
+  <desc>Illustrative distribution of ASR routing: Russian to Qwen3-ASR, English to Parakeet TDT, everything else to Nemotron 3.5 ASR Streaming.</desc>
+
+  <rect width="480" height="320" fill="#ffffff"/>
+
+  <!-- Donut segments (center 150,150; outer r=100, inner r=55). Shares are illustrative. -->
+  <g stroke="#ffffff" stroke-width="2">
+    <!-- ru: -90 deg .. 54 deg (40%) -->
+    <path d="M150,50 A100,100 0 0 1 208.8,230.9 L182.3,194.5 A55,55 0 0 0 150,95 Z" fill="#F59E0B"/>
+    <!-- en: 54 deg .. 162 deg (30%) -->
+    <path d="M208.8,230.9 A100,100 0 0 1 54.9,180.9 L97.7,167.0 A55,55 0 0 0 182.3,194.5 Z" fill="#3B82F6"/>
+    <!-- other: 162 deg .. 270 deg (30%) -->
+    <path d="M54.9,180.9 A100,100 0 0 1 150,250 L150,205 A55,55 0 0 0 97.7,167.0 Z" fill="#10B981"/>
+  </g>
+
+  <!-- Hole -->
+  <circle cx="150" cy="150" r="55" fill="#ffffff"/>
+  <text x="150" y="146" text-anchor="middle" font-size="13" font-weight="700" fill="#0F172A">routing</text>
+  <text x="150" y="162" text-anchor="middle" font-size="10" fill="#475569">45-language ID</text>
+
+  <!-- Legend -->
+  <g font-size="12">
+    <rect x="300" y="70" width="14" height="14" rx="3" fill="#F59E0B"/>
+    <text x="322" y="81" fill="#0F172A" font-weight="600">ru → qwen3-asr-0.6b</text>
+
+    <rect x="300" y="102" width="14" height="14" rx="3" fill="#3B82F6"/>
+    <text x="322" y="113" fill="#0F172A" font-weight="600">en → parakeet-tdt-0.6b-v3</text>
+
+    <rect x="300" y="134" width="14" height="14" rx="3" fill="#10B981"/>
+    <text x="322" y="145" fill="#0F172A" font-weight="600">else / unclear →</text>
+    <text x="322" y="160" fill="#0F172A" font-weight="600">nemotron-3.5-asr-streaming-0.6b</text>
+
+    <text x="300" y="196" font-size="10.5" fill="#475569">Share values are illustrative —</text>
+    <text x="300" y="210" font-size="10.5" fill="#475569">how much each model is used</text>
+    <text x="300" y="224" font-size="10.5" fill="#475569">depends entirely on the source</text>
+    <text x="300" y="238" font-size="10.5" fill="#475569">audio language mix.</text>
+  </g>
+
+  <text x="150" y="282" text-anchor="middle" font-size="10.5" fill="#64748B">Model routing split — four checkpoints, three routes, one multilingual fallback (docs/adr/01-language-routing.md)</text>
+</svg>

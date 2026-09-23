@@ -1,5 +1,13 @@
 # Releasing localcaption
 
+Status: Research note
+Date: 2026-09-22
+Deciders: Maintainer
+Researcher: Maintainer
+Purpose: How a release is cut and published, from tag to PyPI to GitHub.
+Feeds into: [../governance/04-changelog.md](../governance/04-changelog.md),
+[../adr/README.md](../adr/README.md)
+
 Releases are fully automated via GitHub Actions and **PyPI Trusted
 Publishing (OIDC)**. No PyPI API tokens are stored in GitHub Secrets.
 
@@ -52,11 +60,11 @@ git pull
 # 2. Bump the version in pyproject.toml (X.Y.Z, no leading 'v').
 $EDITOR pyproject.toml
 
-# 3. Move the [Unreleased] block in CHANGELOG.md under a new [X.Y.Z] header.
-$EDITOR CHANGELOG.md
+# 3. Move the [Unreleased] block in the changelog under a new [X.Y.Z] header.
+$EDITOR docs/governance/04-changelog.md
 
 # 4. Commit and push.
-git add pyproject.toml CHANGELOG.md
+git add pyproject.toml docs/governance/04-changelog.md
 git commit -m "chore(release): X.Y.Z"
 git push origin main
 

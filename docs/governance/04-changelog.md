@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **YouTube bot-check mitigations.** The downloader now copes with
+  "Sign in to confirm you're not a bot" walls that YouTube raises on Tor
+  exit IPs:
+  - Rotates to a **fresh Tor exit circuit** (`SIGNAL NEWNYM` on the Tor
+    control port) before the first download attempt, and again on every
+    bot-check block.
+  - Auto-detects a **cookie jar** (`$LOCALCAPTION_YTDLP_COOKIES`,
+    `~/.localcaption/yt-dlp-cookies.txt`, or a logged-in browser) and passes
+    it to yt-dlp as an authenticated session that bypasses the check.
+  - New flags: `--cookies BROWSER_OR_FILE`, `--no-proxy` (bypass Tor for one
+    run), `--rotate-tor` (force a fresh exit up front).
+  - `localcaption doctor` now reports whether the cookie source and the Tor
+    rotation path are available, and prints a fix hint when both are missing.
+- **Playlist expansion.** A URL with `&list=` (or `&playlist=`) now auto-
+  expands to every video in the list via `yt-dlp` flat-playlist metadata
+  extraction (no download, so it is fast over Tor). Each video is
+  transcribed sequentially into its own `<out>/<id>/` directory, with
+  skip-if-already-done so a re-run after an interruption resumes. New flags:
+  `--no-playlist` (drop back to single-video mode) and `--playlist-limit N`
+  (transcribe only the first N videos). A playlist URL inside a `--batch`
+  file is expanded the same way.
+- **Cookie handling hardened.** Browser names (`firefox`, `chrome`, ...) are
+  detected by name, not by probing the filesystem, so a stray Netscape jar
+  dumped into the CWD by an earlier `cookiefile=<browser>` call can no
+  longer shadow browser detection.
+
 ### Changed
 - **Replaced the whisper.cpp / faster-whisper backends with a routed,
   multi-model ASR pipeline.** A speechbrain ECAPA-TDNN language-ID stage now

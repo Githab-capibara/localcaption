@@ -73,7 +73,7 @@ localcaption = "localcaption.cli:main"
 Homepage      = "https://github.com/jatinkrmalik/localcaption"
 Repository    = "https://github.com/jatinkrmalik/localcaption"
 Issues        = "https://github.com/jatinkrmalik/localcaption/issues"
-Changelog     = "https://github.com/jatinkrmalik/localcaption/blob/main/CHANGELOG.md"
+Changelog     = "https://github.com/jatinkrmalik/localcaption/blob/main/docs/governance/04-changelog.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/localcaption"]

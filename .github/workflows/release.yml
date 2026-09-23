@@ -145,5 +145,5 @@ jobs:
             ```
 
             ---
-            See [CHANGELOG.md](https://github.com/jatinkrmalik/localcaption/blob/${{ github.ref_name }}/CHANGELOG.md)
+            See [docs/governance/04-changelog.md](https://github.com/jatinkrmalik/localcaption/blob/${{ github.ref_name }}/docs/governance/04-changelog.md)
             for the full list of changes.

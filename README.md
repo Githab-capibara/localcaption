@@ -25,7 +25,7 @@ Fully-local transcription for YouTube and local files. Language-ID routing, thre
   <a href="https://github.com/jatinkrmalik/localcaption/stargazers"><img src="https://img.shields.io/github/stars/jatinkrmalik/localcaption?style=flat&logo=github" alt="GitHub stars"></a>
   <a href="https://github.com/jatinkrmalik/localcaption/commits/main"><img src="https://img.shields.io/github/last-commit/jatinkrmalik/localcaption?logo=github" alt="Last commit"></a>
   <a href="https://github.com/jatinkrmalik/localcaption/issues"><img src="https://img.shields.io/github/issues/jatinkrmalik/localcaption" alt="Open issues"></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
+  <a href="docs/governance/01-contributing.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
 </p>
 
 ```bash
@@ -35,7 +35,7 @@ pipx install localcaption && localcaption doctor --fix # to get started
 </div>
 
 > [!TIP]
-> Local, offline transcription for YouTube, Vimeo, Twitch, Twitter/X, and [1000+ other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp, plus any video or audio file on disk. Paste a URL or a path; get `.txt`, `.srt`, `.vtt`, and `.json` without an API key and without uploading audio to the cloud. A speechbrain language-ID model picks between [Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-0.6B), [Parakeet TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), and [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b).
+> Local, offline transcription for YouTube, Vimeo, Twitch, Twitter/X, and [1000+ other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) via yt-dlp, plus any video or audio file on disk. Paste a URL or a path; get a `.md` transcript by default (`--output-format` adds `.txt`, `.srt`, `.vtt`, or `.json`) without an API key and without uploading audio to the cloud. A speechbrain language-ID model picks between [Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-0.6B), [Parakeet TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), and [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b).
 
 `localcaption` is a tiny orchestrator over four stages:
 
@@ -50,7 +50,21 @@ Nothing is uploaded to a third-party service. No OpenAI / Google / DeepL keys
 required. Unlike pasting a clip into ChatGPT or calling the Whisper API,
 transcription stays on your laptop after the download.
 
-![Pipeline overview](docs/diagrams/pipeline.png)
+![Pipeline overview](docs/diagrams/pipeline.svg)
+
+## Documentation
+
+Everything lives in [`docs/`](docs) (master index: [docs/README.md](docs/README.md)):
+
+| Folder | Contents |
+|---|---|
+| [docs/adr](docs/adr/README.md) | Architecture Decision Records: language routing, isolated runtimes, proxy-first networking, search index, local summaries |
+| [docs/design](docs/design/README.md) | Research notes: pipeline stages, model selection, GPU offload, batch & playlists, chapters & search, output formats |
+| [docs/networking](docs/networking/README.md) | SOCKS5/Tor policy, circuit rotation, YouTube bot-check mitigation, cookie sources |
+| [docs/models](docs/models/README.md) | The four checkpoints, the isolated runtimes, and language identification |
+| [docs/api](docs/api/README.md) | CLI reference, Python API, configuration, error model |
+| [docs/operations](docs/operations/README.md) | Installation, `doctor --fix`, release procedure |
+| [docs/governance](docs/governance/README.md) | Contributing, Code of Conduct, security policy, changelog |
 
 ## Why localcaption
 
@@ -62,7 +76,7 @@ transcription stays on your laptop after the download.
 - **Chapters.** With `--output-format md` (default) YouTube chapter markers are folded into that single `.md`; other formats also emit `.chapters.json` and `.chaptered.md`.
 - **Search.** `localcaption search <term>` greps past transcripts with timestamps.
 - **Local summaries.** `--summary` talks to a local [Ollama](https://ollama.com), not a hosted LLM.
-- **Proxy-first.** All network traffic (downloads, model fetches, child processes) can be routed through a SOCKS5 proxy.
+- **Proxy-first.** All network traffic (downloads, model fetches, child processes) can be routed through a SOCKS5 proxy. When YouTube raises a "Sign in to confirm you're not a bot" block on a Tor exit, the downloader rotates to a fresh Tor exit (`SIGNAL NEWNYM`) and optionally authenticates with a browser cookie jar (`--cookies`) to get past it.
 - **`doctor --fix`.** Installs missing tools, builds the model runtimes, and downloads the checkpoints.
 
 ## Why three ASR models?
@@ -73,10 +87,18 @@ when available:
 
 | Model | Role | Size | Why |
 |---|---|---|---|
-| [Qwen3-ASR 0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) | Russian | ~1.9 GB | Best-in-class Russian WER at 0.6B |
-| [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | English | ~2.5 GB | Top of the Open ASR leaderboard |
-| [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) | 40+ languages | ~2.6 GB | Multilingual catch-all fallback |
+| [Qwen3-ASR 0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) | Russian | ~1.9 GiB | Best-in-class Russian WER at 0.6B |
+| [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | English | ~2.4 GiB | Top of the Open ASR leaderboard |
+| [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) | 40+ languages | ~2.5 GiB | Multilingual catch-all fallback |
 | [speechbrain lang-id-commonlanguage_ecapa](https://huggingface.co/speechbrain/lang-id-commonlanguage_ecapa) | routing | ~84 MB | 45-language classifier |
+
+```
+                        ┌── ru ──────────────► Qwen3-ASR 0.6B
+ language-ID (ECAPA) ───┼── en ──────────────► Parakeet TDT 0.6B v3
+ 45 langs, 6s window     └── else / unclear ──► Nemotron 3.5 ASR 0.6B
+```
+
+![Model routing split](docs/diagrams/model-routing.svg)
 
 If the language is unclear (best posterior < 0.6), localcaption falls back to
 the multilingual Nemotron model instead of guessing.
@@ -200,14 +222,14 @@ If you're hacking on `localcaption` itself, install editable from a clone:
 ```bash
 git clone https://github.com/jatinkrmalik/localcaption
 cd localcaption
-./scripts/setup.sh           # creates .venv, installs -e .[dev], builds runtime/
-source .venv/bin/activate
+./scripts/setup.sh           # creates runtime/main, installs -e .[dev], builds all runtimes
+source runtime/main/bin/activate
 pytest                        # the suite should pass
 ```
 
 The dev setup keeps `runtime/` and `models/` inside the repo (so you can poke
-at them) and editable-installs the package so source edits take effect
-immediately.
+at them) and editable-installs the package into `runtime/main` so source edits
+take effect immediately.
 
 ## Usage
 
@@ -243,7 +265,12 @@ localcaption ./talk.mp4 --summary --summary-model llama3.1:8b
 | `--keep-audio` | off | keep the downloaded audio + intermediate WAV in `<out>/.work/` |
 | `--no-print` | off | don't echo the transcript to stdout |
 | `--auto-download` | off | download missing models without prompting |
-| `--batch FILE` | off | transcribe each non-empty, non-`#` line in FILE sequentially |
+| `--cookies BROWSER_OR_FILE` | auto | yt-dlp cookie source for YouTube: a browser name (`firefox`, `chrome`, …) or a Netscape cookie file. Auto-detected when omitted. |
+| `--no-proxy` | off | bypass `LOCALCAPTION_PROXY` for this run (direct connection). Use when the Tor exit is flagged but your own line is clean. |
+| `--rotate-tor` | off | request a fresh Tor exit circuit before downloading. Also done automatically on any bot-check block. |
+| `--no-playlist` | off | only transcribe the first video in a playlist URL; ignore the rest (default: transcribe every video) |
+| `--playlist-limit N` | off | transcribe only the first N videos of a playlist URL |
+| `--batch FILE` | off | transcribe each non-empty, non-`#` line in FILE sequentially; playlist URLs in the file are auto-expanded |
 | `--summary` | off | after transcription, write `<id>.summary.md` via local Ollama |
 | `--summary-model` | `llama3.1:8b` | Ollama model used by `--summary` |
 | `--summary-prompt` | built-in | path to a prompt template (`{transcript}` is replaced if present) |
@@ -257,10 +284,17 @@ source has chapter markers (typical on YouTube), they are folded into that singl
 
 `--batch FILE` writes each item into `<out>/<videoId>/` and skips any video
 whose `.md` (or `.txt`, for non-md runs) is already there, so you can re-run a
-list after a failure.
+list after a failure. A line that is a YouTube playlist URL (`&list=...`)
+is expanded in place to its individual videos.
 Local paths are relative to the list file (and `~` is expanded). The process
 is sequential (a model already saturates the machine). Exit 0 if everything
 succeeded or was skipped, 1 otherwise.
+
+A URL that carries a playlist id (`https://…/watch?v=ID&list=PL…`) is
+auto-expanded to every video in the list. Each video is transcribed
+sequentially into its own `<out>/<id>/<id>.md` directory, and already-done
+videos are skipped on re-runs. Use `--no-playlist` to transcribe only the
+first video, or `--playlist-limit N` to cap the list.
 
 You can also invoke it as a module: `python -m localcaption <url-or-file>`.
 
@@ -329,18 +363,57 @@ localcaption --model parakeet-tdt-0.6b-v3 --auto-download "https://www.youtube.c
 | Model key | Role | Size |
 |---|---|---|
 | `langid-ecapa` | language routing | ~84 MB |
-| `qwen3-asr-0.6b` | Russian | ~1.9 GB |
-| `parakeet-tdt-0.6b-v3` | English | ~2.5 GB |
-| `nemotron-3.5-asr-streaming-0.6b` | multilingual fallback | ~2.6 GB |
+| `qwen3-asr-0.6b` | Russian | ~1.9 GiB |
+| `parakeet-tdt-0.6b-v3` | English | ~2.4 GiB |
+| `nemotron-3.5-asr-streaming-0.6b` | multilingual fallback | ~2.5 GiB |
 
 ### Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `LOCALCAPTION_PROXY` | `socks5h://127.0.0.1:9050` | Proxy for **all** network traffic. Loopback is always excluded. |
+| `LOCALCAPTION_YTDLP_COOKIES` | `~/.localcaption/yt-dlp-cookies.txt` | Netscape cookie jar for yt-dlp. Passes YouTube's "Sign in to confirm you're not a bot" wall when a Tor exit IP is flagged. |
+| `LOCALCAPTION_YTDLP_COOKIE_BROWSERS` | — | Comma-separated browser names (e.g. `firefox,chrome`) whose logged-in cookie jar yt-dlp should read automatically. |
+| `LOCALCAPTION_TOR_CONTROL` | proxy port + 1 (`127.0.0.1:9051`) | Tor control-port endpoint used to request a fresh exit circuit (`SIGNAL NEWNYM`) on bot-check. |
+| `LOCALCAPTION_TOR_DATADIR` | — | Tor data dir; the control cookie is probed at `<dir>/control.authcookie`. |
 | `LOCALCAPTION_MODELS_DIR` | `<repo>/models` | Where checkpoints are stored. |
 | `LOCALCAPTION_RUNTIME_DIR` | `<repo>/runtime` | Where the per-model virtualenvs live. |
 | `LOCALCAPTION_INDEX_PATH` | `~/.local/share/localcaption/index.jsonl` | Search index location. |
+| `NO_COLOR` | — | Presence disables ANSI colors in CLI logs. |
+
+Path defaults are XDG-aware: `XDG_DATA_HOME`/`XDG_CACHE_HOME` shape the data
+and cache directories used by the search index and downloads.
+
+### YouTube bot-check ("Sign in to confirm you're not a bot")
+
+YouTube flags Tor exit IPs and raises a bot-check that no amount of
+player-client rotation clears. localcaption copes automatically:
+
+1. **Fresh Tor exit on start** — the downloader requests a new circuit
+   (`SIGNAL NEWNYM` on the Tor control port) before the first attempt, so
+   the download runs on a clean exit IP.
+2. **Re-rotate on block** — if a client retry still hits the wall, the exit
+   is rotated again before the next attempt.
+3. **Cookie jar** — if cookies are available
+   (`$LOCALCAPTION_YTDLP_COOKIES`, `~/.localcaption/yt-dlp-cookies.txt`, or
+   a logged-in browser via `--cookies firefox`), they are passed to yt-dlp
+   as an authenticated session that bypasses the check entirely.
+
+To override any of this on the command line:
+
+```bash
+# Use a logged-in browser's cookies (e.g. Firefox)
+localcaption URL --cookies firefox
+
+# Bypass Tor entirely for one run (direct, un-flagged line)
+localcaption URL --no-proxy
+
+# Force a fresh Tor exit before downloading
+localcaption URL --rotate-tor
+```
+
+`localcaption doctor` reports whether the cookie source and the Tor rotation
+path are available.
 
 ### Python API
 
@@ -380,7 +453,7 @@ isolated virtualenv.
 
 ### Module map
 
-![Module architecture](docs/diagrams/architecture.png)
+![Module architecture](docs/diagrams/architecture.svg)
 
 | Layer | Files | Responsibility |
 |---|---|---|
@@ -397,13 +470,13 @@ End-to-end call flow for a single `localcaption <url>` invocation, including
 the subprocess hops to yt-dlp, ffmpeg, and the model runner. The intermediate
 `.work/` directory is cleaned up at the end unless `--keep-audio` is passed.
 
-![Sequence diagram](docs/diagrams/sequence.png)
+![Sequence diagram](docs/diagrams/sequence.svg)
 
 > Diagrams live in [`docs/diagrams/`](docs/diagrams) as Mermaid `.mmd` source
-> files alongside the rendered PNGs. Regenerate with:
+> files alongside the rendered SVGs/PNGs. Regenerate with:
 > ```bash
-> mmdc -i docs/diagrams/<name>.mmd -o docs/diagrams/<name>.png \
->   -t default -b white --width 1600 --scale 2
+> mmdc -i docs/diagrams/<name>.mmd -o docs/diagrams/<name>.svg \
+>   -t default -b white --width 1600
 > ```
 
 ## Notes
@@ -443,7 +516,9 @@ No, except the download of a URL you asked for. Transcription and optional Ollam
 No. Any site [yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) (Vimeo, Twitch, Twitter/X, podcasts, and many more), plus local video and audio files.
 
 **Does it write SRT and VTT?**
-Yes. Each run writes `.txt`, `.srt`, `.vtt`, and `.json`.
+By default each run writes a single `.md` (chapters folded in when present).
+Pass `--output-format srt`, `--output-format vtt`, `--output-format json`,
+or `--output-format all` to get those sidecars too.
 
 **Windows?**
 macOS and Linux are the supported platforms (`doctor --fix` uses Homebrew or apt). Native Windows is not supported. WSL is the realistic path if you are on Windows.
@@ -461,9 +536,10 @@ macOS and Linux are the supported platforms (`doctor --fix` uses Homebrew or apt
 
 ## Contributing
 
-Pull requests welcome! See [CONTRIBUTING.md](CONTRIBUTING.md). By
-participating you agree to abide by our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+Pull requests welcome! See [docs/governance/01-contributing.md](docs/governance/01-contributing.md).
+By participating you agree to abide by our
+[Code of Conduct](docs/governance/02-code-of-conduct.md). Release history is
+in the [changelog](docs/governance/04-changelog.md).
 
 ## License
 

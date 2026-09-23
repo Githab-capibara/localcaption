@@ -18,6 +18,12 @@ whisper.cpp/
 transcripts/
 transcripts_*/
 
+# Model checkpoints and runtimes are machine-local, fetched on demand
+# (localcaption model download / scripts/setup_runtime.sh). Keeping them
+# out of git keeps the repository small (~7 GB of weights, ~21 GB of venvs).
+models/
+runtime/
+
 # OS / editor
 .DS_Store
 .idea/

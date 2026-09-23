@@ -30,7 +30,7 @@ Unacceptable behaviour includes:
 
 Instances of abusive, harassing, or otherwise unacceptable behaviour may be
 reported to the project maintainers via a private GitHub Security Advisory or
-the contact listed in `SECURITY.md`. All complaints will be reviewed and
+the contact listed in [03-security-policy.md](03-security-policy.md). All complaints will be reviewed and
 investigated promptly and fairly.
 
 ## Attribution
